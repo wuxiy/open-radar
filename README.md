@@ -39,7 +39,7 @@ GITHUB_TOKEN=... open-radar collect \
   --scheduled-at 2026-09-03T00:00:00Z
 ```
 
-The collector honors each project's `tracking` value, skips `off`, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes a run manifest under `data/runs/YYYY-MM.jsonl`.
+The collector honors each project's `tracking` value, skips `off`, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes a run manifest under `data/runs/YYYY-MM.jsonl`.
 
 Regenerate a Markdown view from the checked-in data:
 
@@ -101,4 +101,4 @@ The GitHub Actions workflow runs the offline suite and repository validation wit
 
 The local core covers identity resolution, admission candidates, project storage, scheduled metadata collection, append-only observations, schema and taxonomy validation, and deterministic README generation.
 
-The GitHub Issue-to-admission-PR flow, human merge gate, observation-only publishing PR, protected-branch automation, provenance signatures, and multi-source providers remain integration work before the full architecture acceptance checklist can pass.
+The GitHub Issue-to-admission-PR flow, human merge gate, observation-only publishing PR, protected-branch automation, provenance signatures, persistent retry recovery, and multi-source providers remain integration work before the full architecture acceptance checklist can pass.

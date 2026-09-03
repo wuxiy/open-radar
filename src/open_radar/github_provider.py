@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import socket
+import time
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol
 from urllib.error import HTTPError, URLError
@@ -24,9 +26,21 @@ class GitHubClient(Protocol):
 class GitHubApiClient:
     """Small read-only GitHub API client used by the collection workflow."""
 
-    def __init__(self, token: str | None = None, timeout: float = 15.0) -> None:
+    def __init__(
+        self,
+        token: str | None = None,
+        timeout: float = 15.0,
+        max_retries: int = 2,
+        backoff_seconds: float = 0.5,
+    ) -> None:
+        if max_retries < 0:
+            raise ValueError("max_retries must be non-negative")
+        if backoff_seconds < 0:
+            raise ValueError("backoff_seconds must be non-negative")
         self._token = token
         self._timeout = timeout
+        self._max_retries = max_retries
+        self._backoff_seconds = backoff_seconds
 
     def get_repository(self, owner: str, repo: str) -> Mapping[str, Any]:
         path = f"{quote(owner, safe='')}/{quote(repo, safe='')}"
@@ -40,13 +54,43 @@ class GitHubApiClient:
         )
         if self._token:
             request.add_header("Authorization", f"Bearer {self._token}")
-        try:
-            with urlopen(request, timeout=self._timeout) as response:
-                payload = json.load(response)
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise GitHubProviderError(f"GitHub API request failed for {owner}/{repo}") from exc
-        except (TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise GitHubProviderError(f"GitHub API returned invalid JSON for {owner}/{repo}") from exc
+        for attempt in range(self._max_retries + 1):
+            try:
+                with urlopen(request, timeout=self._timeout) as response:
+                    payload = json.load(response)
+            except HTTPError as exc:
+                retryable = exc.code == 429 or 500 <= exc.code < 600
+                if retryable and attempt < self._max_retries:
+                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    try:
+                        delay = float(retry_after) if retry_after is not None else 0.0
+                    except (TypeError, ValueError):
+                        delay = 0.0
+                    delay = min(max(delay, self._backoff_seconds * (2**attempt)), 60.0)
+                    time.sleep(delay)
+                    continue
+                raise GitHubProviderError(f"GitHub API request failed for {owner}/{repo}") from exc
+            except URLError as exc:
+                retryable = isinstance(
+                    exc.reason,
+                    (
+                        TimeoutError,
+                        socket.timeout,
+                        ConnectionError,
+                    ),
+                )
+                if retryable and attempt < self._max_retries:
+                    time.sleep(self._backoff_seconds * (2**attempt))
+                    continue
+                raise GitHubProviderError(f"GitHub API request failed for {owner}/{repo}") from exc
+            except (TimeoutError, ConnectionError) as exc:
+                if attempt < self._max_retries:
+                    time.sleep(self._backoff_seconds * (2**attempt))
+                    continue
+                raise GitHubProviderError(f"GitHub API request failed for {owner}/{repo}") from exc
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise GitHubProviderError(f"GitHub API returned invalid JSON for {owner}/{repo}") from exc
+            break
         if not isinstance(payload, Mapping):
             raise GitHubProviderError(f"GitHub API returned an invalid object for {owner}/{repo}")
         return payload
