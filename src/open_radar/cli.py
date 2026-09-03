@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
 import sys
 import uuid
@@ -58,7 +59,9 @@ def _root(namespace: argparse.Namespace) -> Path:
 
 
 def _provider(namespace: argparse.Namespace) -> GitHubProvider:
-    return GitHubProvider(GitHubApiClient(token=namespace.token))
+    return GitHubProvider(
+        GitHubApiClient(token=namespace.token or os.environ.get("GITHUB_TOKEN"))
+    )
 
 
 def _ingest(namespace: argparse.Namespace) -> int:
