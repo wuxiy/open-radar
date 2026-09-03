@@ -1,0 +1,17 @@
+schema_version: 1
+kind: tags
+items:
+  - id: agent
+    name: Agent
+  - id: coding-agent
+    name: Coding agent
+  - id: rag
+    name: Retrieval augmented generation
+  - id: sandbox
+    name: Sandbox
+  - id: search
+    name: Search
+  - id: testing
+    name: Testing
+  - id: automation
+    name: Automation

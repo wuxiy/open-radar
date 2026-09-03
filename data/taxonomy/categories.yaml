@@ -1,0 +1,21 @@
+schema_version: 1
+kind: categories
+items:
+  - id: ai
+    name: AI
+  - id: automation
+    name: Automation
+  - id: data
+    name: Data
+  - id: database
+    name: Database
+  - id: devtools
+    name: Developer tools
+  - id: infrastructure
+    name: Infrastructure
+  - id: observability
+    name: Observability
+  - id: security
+    name: Security
+  - id: uncategorized
+    name: Uncategorized

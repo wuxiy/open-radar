@@ -1,0 +1,13 @@
+{
+  "id": 100000001,
+  "name": "radar-demo",
+  "full_name": "example-org/radar-demo",
+  "html_url": "https://github.com/example-org/radar-demo",
+  "description": "A demo",
+  "stargazers_count": 42,
+  "forks_count": 3,
+  "archived": false,
+  "language": "Python",
+  "topics": ["automation"],
+  "license": {"spdx_id": "MIT"}
+}

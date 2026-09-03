@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/run-manifest.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "run_id", "kind", "started_at", "status", "counts"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "kind": {"enum": ["ingest", "collect", "generate", "validate"]},
+    "started_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "finished_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "status": {"enum": ["started", "succeeded", "partial", "failed"]},
+    "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "errors": {"type": "array", "items": {"type": "string"}}
+  }
+}

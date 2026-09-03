@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/observation.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "record_type", "event_id", "collection_key", "run_id", "project_id", "provider", "repository_id", "scheduled_at", "observed_at", "recorded_at", "collector_version", "source", "metrics", "facts", "unavailable"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "record_type": {"enum": ["observation", "correction", "invalidation"]},
+    "event_id": {"type": "string", "minLength": 1},
+    "collection_key": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "provider": {"type": "string", "minLength": 1},
+    "repository_id": {"type": "integer", "exclusiveMinimum": 0},
+    "scheduled_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "observed_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "recorded_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "collector_version": {"type": "string", "minLength": 1},
+    "source": {"type": "string", "minLength": 1},
+    "metrics": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0}},
+    "facts": {"type": "object"},
+    "unavailable": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+    "supersedes": {"type": "string", "minLength": 1},
+    "correction_reason": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"record_type": {"const": "observation"}}},
+      "then": {"not": {"required": ["supersedes", "correction_reason"]}}
+    },
+    {
+      "if": {"properties": {"record_type": {"enum": ["correction", "invalidation"]}}},
+      "then": {"required": ["supersedes", "correction_reason"]}
+    }
+  ]
+}

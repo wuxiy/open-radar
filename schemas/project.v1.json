@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/project.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "id", "display_name", "aliases", "repositories", "primary_category", "tags", "discovery_sources", "research_stage", "decision", "tracking", "personal_notes"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "display_name": {"type": "string", "minLength": 1},
+    "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider", "repository_id", "owner", "repo", "role"],
+        "properties": {
+          "provider": {"type": "string", "minLength": 1},
+          "repository_id": {"type": "integer", "exclusiveMinimum": 0},
+          "owner": {"type": "string", "minLength": 1},
+          "repo": {"type": "string", "minLength": 1},
+          "role": {"enum": ["primary", "sdk", "docs", "other"]}
+        }
+      }
+    },
+    "primary_category": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "tags": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "uniqueItems": true},
+    "discovery_sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "url", "discovered_at"],
+        "properties": {
+          "type": {"type": "string", "minLength": 1},
+          "url": {"type": "string", "minLength": 1},
+          "discovered_at": {"type": "string", "format": "date-time", "pattern": "Z$"}
+        }
+      }
+    },
+    "research_stage": {"enum": ["watching", "researching", "evaluated"]},
+    "decision": {"enum": ["undecided", "adopt", "reference", "reject"]},
+    "tracking": {"enum": ["daily", "weekly", "monthly", "off"]},
+    "personal_notes": {"type": "string"},
+    "summary": {"type": ["string", "null"]},
+    "why_interesting": {"type": "array", "items": {"type": "string"}},
+    "use_cases": {"type": "array", "items": {"type": "string"}}
+  }
+}
