@@ -67,6 +67,18 @@ class ProjectContractTests(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     validate_project_data(project_data(repositories=replacement))
 
+    def test_primary_repository_is_selected_by_role_not_list_position(self):
+        repositories = project_data()["repositories"]
+        project = Project.from_dict(
+            project_data(
+                repositories=[
+                    dict(repositories[0], repository_id=100000002, role="sdk"),
+                    repositories[0],
+                ]
+            )
+        )
+        self.assertEqual(project.primary_repository.repository_id, 100000001)
+
 
 class ObservationContractTests(unittest.TestCase):
     def test_observation_requires_utc_timestamps_and_preserves_unknown_values(self):
@@ -118,6 +130,15 @@ class ObservationContractTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             ObservationRecord.from_dict(
                 {**base, "recorded_at": "2026-09-03T08:03:00+08:00"}
+            )
+
+        with self.assertRaises(ValidationError):
+            ObservationRecord.from_dict(
+                {
+                    **base,
+                    "observed_at": "2026-09-03T00:04:00Z",
+                    "recorded_at": "2026-09-03T00:03:00Z",
+                }
             )
 
     def test_correction_must_reference_an_existing_event(self):

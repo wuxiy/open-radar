@@ -2,21 +2,52 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 import hashlib
+import json
 
 from open_radar.publisher import (
     ObservationOnlyPublisher,
     PublisherArtifact,
+    PublisherCommitResult,
     PublisherIsolationError,
+    PublisherPlan,
 )
 from open_radar.generation import render_readme
-from open_radar.storage import ObservationStore
+from open_radar.storage import ObservationStore, ProjectStore
+from open_radar.domain import ObservationRecord, Project
 
 
 class PublisherTests(unittest.TestCase):
     def test_path_and_content_allowlist(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
+            project = Project.from_dict(
+                {
+                    "schema_version": 1,
+                    "id": "radar-demo",
+                    "display_name": "Radar Demo",
+                    "aliases": [],
+                    "repositories": [
+                        {
+                            "provider": "github",
+                            "repository_id": 1,
+                            "owner": "example",
+                            "repo": "radar-demo",
+                            "role": "primary",
+                        }
+                    ],
+                    "primary_category": "devtools",
+                    "tags": [],
+                    "discovery_sources": [],
+                    "research_stage": "watching",
+                    "decision": "undecided",
+                    "tracking": "weekly",
+                    "personal_notes": "",
+                }
+            )
+            ProjectStore(root).save(project)
             publisher = ObservationOnlyPublisher(root)
+            observation_content = '{"schema_version":1,"record_type":"observation","event_id":"e","collection_key":"slot","run_id":"run-1","project_id":"radar-demo","provider":"github","repository_id":1,"scheduled_at":"2026-09-04T00:00:00Z","observed_at":"2026-09-04T00:00:00Z","recorded_at":"2026-09-04T00:00:00Z","collector_version":"v1","source":"github-api","metrics":{},"facts":{},"unavailable":{}}\n'
+            observation = ObservationRecord.from_dict(json.loads(observation_content))
             plan = publisher.plan(
                 [
                 PublisherArtifact(
@@ -26,10 +57,10 @@ class PublisherTests(unittest.TestCase):
                 ),
                 PublisherArtifact(
                     "data/observations/github/2026-09.jsonl",
-                    '{"schema_version":1,"record_type":"observation","event_id":"e","collection_key":"slot","run_id":"run-1","project_id":"radar-demo","provider":"github","repository_id":1,"scheduled_at":"2026-09-04T00:00:00Z","observed_at":"2026-09-04T00:00:00Z","recorded_at":"2026-09-04T00:00:00Z","collector_version":"v1","source":"github-api","metrics":{},"facts":{},"unavailable":{}}\n',
+                    observation_content,
                     "observation",
                 ),
-                    PublisherArtifact("README.md", render_readme([], ObservationStore(root)), "readme"),
+                    PublisherArtifact("README.md", render_readme([project], [observation]), "readme"),
                 ]
             )
             self.assertEqual(plan.paths[0], "README.md")
@@ -51,6 +82,58 @@ class PublisherTests(unittest.TestCase):
             with self.assertRaises(PublisherIsolationError):
                 publisher.plan([artifact])
 
+    def test_machine_artifacts_require_root_for_baseline_validation(self):
+        with self.assertRaises(PublisherIsolationError):
+            ObservationOnlyPublisher().plan([
+                PublisherArtifact(
+                    "data/runs/2026-09.jsonl",
+                    '{"schema_version":1,"run_id":"run-1","kind":"collect","started_at":"2026-09-04T00:00:00Z","finished_at":"2026-09-04T00:00:01Z","status":"succeeded","counts":{}}\n',
+                    "run",
+                )
+            ])
+
+    def test_plan_cannot_be_constructed_without_cas_digests(self):
+        with self.assertRaises(PublisherIsolationError):
+            PublisherPlan(
+                files=(PublisherArtifact("README.md", "x", "readme"),)
+            )
+
+    def test_sink_must_accept_and_receive_base_state_cas(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            publisher = ObservationOnlyPublisher(root)
+            artifact = PublisherArtifact("README.md", render_readme([], []), "readme")
+
+            class Sink:
+                def __init__(self):
+                    self.expected = None
+
+                def open_or_update(self, plan, *, expected_base_state_sha256):
+                    self.expected = expected_base_state_sha256
+                    return PublisherCommitResult(
+                        True, expected_base_state_sha256, plan.idempotency_key
+                    )
+
+            sink = Sink()
+            plan = publisher.publish([artifact], sink=sink)
+            self.assertEqual(sink.expected, plan.base_state_sha256)
+
+            class LegacySink:
+                def open_or_update(self, plan):
+                    return None
+
+            with self.assertRaises(PublisherIsolationError):
+                publisher.publish([artifact], sink=LegacySink())
+
+            class RejectingSink:
+                def open_or_update(self, plan, *, expected_base_state_sha256):
+                    return PublisherCommitResult(
+                        False, expected_base_state_sha256, plan.idempotency_key
+                    )
+
+            with self.assertRaises(PublisherIsolationError):
+                publisher.publish([artifact], sink=RejectingSink())
+
     def test_symlink_destination_is_rejected(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -59,6 +142,75 @@ class PublisherTests(unittest.TestCase):
             with self.assertRaises(PublisherIsolationError):
                 ObservationOnlyPublisher(root).plan([
                     PublisherArtifact("data/observations/github/2026-09.jsonl", '{}', "observation")
+                ])
+
+    def test_symlink_parent_component_is_rejected(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "data").mkdir()
+            outside = Path(directory).parent / f"publisher-outside-{Path(directory).name}"
+            outside.mkdir()
+            try:
+                (root / "data" / "observations").symlink_to(outside, target_is_directory=True)
+                with self.assertRaises(PublisherIsolationError):
+                    ObservationOnlyPublisher(root).plan([
+                        PublisherArtifact(
+                            "data/observations/github/2026-09.jsonl", "{}", "observation"
+                        )
+                    ])
+            finally:
+                outside.rmdir()
+
+    def test_existing_machine_log_requires_cas_and_append_prefix(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "data" / "observations" / "github" / "2026-09.jsonl"
+            path.parent.mkdir(parents=True)
+            old = '{"schema_version":1}\n'
+            path.write_text(old, encoding="utf-8")
+            artifact = PublisherArtifact(
+                "data/observations/github/2026-09.jsonl",
+                old + "{}\n",
+                "observation",
+            )
+            with self.assertRaises(PublisherIsolationError):
+                ObservationOnlyPublisher(root).plan([artifact])
+            digest = hashlib.sha256(old.encode()).hexdigest()
+            with self.assertRaises(PublisherIsolationError):
+                ObservationOnlyPublisher(root).plan([
+                    PublisherArtifact(artifact.path, "{}\n", "observation", base_sha256=digest)
+                ])
+            with self.assertRaises(PublisherIsolationError):
+                ObservationOnlyPublisher(root).plan([
+                    PublisherArtifact(artifact.path, old + "{}\n", "observation", base_sha256="0" * 64)
+                ])
+
+    def test_run_manifest_ids_are_unique_within_a_plan(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            line = '{"schema_version":1,"run_id":"run-1","kind":"collect","started_at":"2026-09-04T00:00:00Z","finished_at":"2026-09-04T00:00:01Z","status":"succeeded","counts":{}}\n'
+            with self.assertRaises(PublisherIsolationError):
+                ObservationOnlyPublisher(root).plan([
+                    PublisherArtifact(
+                        "data/runs/2026-09.jsonl", line + line, "run"
+                    )
+                ])
+
+    def test_closed_machine_partition_cannot_be_republished(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "data" / "runs" / "2026-08.jsonl"
+            path.parent.mkdir(parents=True)
+            old = '{"schema_version":1,"run_id":"run-old","kind":"collect","started_at":"2026-08-04T00:00:00Z","finished_at":"2026-08-04T00:00:01Z","status":"succeeded","counts":{}}\n'
+            path.write_text(old, encoding="utf-8")
+            with self.assertRaises(PublisherIsolationError):
+                ObservationOnlyPublisher(root).plan([
+                    PublisherArtifact(
+                        path="data/runs/2026-08.jsonl",
+                        content=old,
+                        kind="run",
+                        base_sha256=hashlib.sha256(old.encode()).hexdigest(),
+                    )
                 ])
 
 

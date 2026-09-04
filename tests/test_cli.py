@@ -110,9 +110,9 @@ class CliTests(unittest.TestCase):
                             "2026-09-04T00:00:00Z",
                         ]
                     ),
-                    0,
+                    1,
                 )
-            self.assertTrue((root / "data" / "projects" / "radar-demo.yaml").is_file())
+            self.assertFalse((root / "data" / "projects" / "radar-demo.yaml").exists())
 
     def test_ingest_write_rejects_untrusted_request_without_traceback(self):
         with TemporaryDirectory() as directory:

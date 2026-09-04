@@ -62,6 +62,7 @@ class MergedPullRequest:
     merged_by: str | None
     url: str | None = None
     project: Project | None = None
+    is_bot: bool = False
 
     def __post_init__(self) -> None:
         if isinstance(self.number, bool) or not isinstance(self.number, int) or self.number <= 0:
@@ -78,6 +79,8 @@ class MergedPullRequest:
             not isinstance(self.merged_by, str) or not self.merged_by.strip()
         ):
             raise PullRequestError("merged_by must be a non-empty string or null")
+        if not isinstance(self.is_bot, bool):
+            raise PullRequestError("is_bot must be boolean")
         if self.project is not None and not isinstance(self.project, Project):
             raise PullRequestError("merged project must be a validated Project")
 
@@ -115,7 +118,11 @@ class AdmissionPRClient(Protocol):
 
 
 class PullRequestStateProvider(Protocol):
-    """Read-only seam for an adapter that verifies GitHub's merged PR facts."""
+    """Read-only seam for an adapter that verifies GitHub's merged PR facts.
+
+    Adapters must populate ``MergedPullRequest.is_bot`` from the provider's
+    actor type, rather than inferring human review from a display name alone.
+    """
 
     def get_pull_request(self, reference: PullRequestRef) -> MergedPullRequest: ...
 
@@ -168,12 +175,16 @@ class AdmissionWorkflow:
         *,
         pr_client: AdmissionPRClient | None = None,
         guard: AdmissionGuard | None = None,
+        allow_uncontrolled: bool = False,
     ) -> None:
         self.service = service
         self.policy = policy
         self.transactions = transactions
         self.pr_client = pr_client or DeterministicAdmissionPRClient()
         self.guard = guard
+        if not isinstance(allow_uncontrolled, bool):
+            raise ValueError("allow_uncontrolled must be boolean")
+        self.allow_uncontrolled = allow_uncontrolled
 
     def prepare(
         self,
@@ -182,13 +193,39 @@ class AdmissionWorkflow:
         candidate_options: dict[str, object] | None = None,
     ) -> AdmissionPreparation:
         options = dict(candidate_options or {})
-        candidate = self.service.build_verified_event_candidate(
-            event,
-            self.policy,
-            guard=self.guard,
-            **options,
-        )
-        return self._prepare_candidate(candidate)
+        try:
+            if self.guard is None and not self.allow_uncontrolled:
+                raise MergeReconciliationError(
+                    "admission guard is required for webhook admission"
+                )
+            if not event.replay_managed and not self.allow_uncontrolled:
+                raise MergeReconciliationError(
+                    "durable replay control is required for webhook admission"
+                )
+            candidate = self.service.build_verified_event_candidate(
+                event,
+                self.policy,
+                guard=self.guard,
+                allow_uncontrolled=self.allow_uncontrolled,
+                **options,
+            )
+            preparation = self._prepare_candidate(candidate)
+            if not event.complete_replay(
+                idempotency_key=candidate.request.idempotency_key
+            ):
+                raise PullRequestError("replay delivery could not be marked completed")
+            return preparation
+        except Exception as exc:
+            try:
+                if not event.fail_replay(
+                    reason=str(exc)[:512] or "admission preparation failed"
+                ):
+                    raise PullRequestError("replay failure state was not applied")
+            except Exception as state_exc:
+                raise PullRequestError(
+                    "admission failed and replay failure state could not be persisted"
+                ) from state_exc
+            raise
 
     def prepare_request(
         self,
@@ -206,6 +243,7 @@ class AdmissionWorkflow:
             request,
             self.policy,
             guard=self.guard,
+            allow_uncontrolled=self.allow_uncontrolled,
             **options,
         )
         return self._prepare_candidate(candidate)
@@ -213,7 +251,7 @@ class AdmissionWorkflow:
     def _prepare_candidate(self, candidate: AuthorizedCandidate) -> AdmissionPreparation:
         request = candidate.request
         branch = self._branch_name(request.idempotency_key)
-        now = ensure_utc(request.created_at)
+        now = max(ensure_utc(request.created_at), datetime.now(timezone.utc))
         transaction = self.transactions.ensure(
             AdmissionTransaction(
                 schema_version=1,
@@ -222,7 +260,8 @@ class AdmissionWorkflow:
                 intake_repository_id=request.intake_repository_id,
                 issue_number=request.issue_number,
                 project_id=candidate.project.id,
-                repository_id=candidate.project.repositories[0].repository_id,
+                repository_id=candidate.project.primary_repository.repository_id,
+                repository_provider=candidate.project.primary_repository.provider,
                 project_url=request.project_url,
                 requester=request.requester,
                 branch_name=branch,
@@ -232,6 +271,15 @@ class AdmissionWorkflow:
             )
         )
         transition_now = max(now, transaction.updated_at)
+        if transaction.status in {"admitted", "merged"}:
+            existing_ref = self._ref_from_transaction(transaction)
+            if existing_ref is None:
+                raise PullRequestError(
+                    f"admission transaction {transaction.idempotency_key} has no recorded PR"
+                )
+            return AdmissionPreparation(candidate, transaction, self._plan(candidate, branch), existing_ref)
+        if transaction.status == "rejected":
+            raise PullRequestError("rejected admission transactions are terminal")
         if transaction.status == "pending":
             transaction = self.transactions.transition(
                 transaction.idempotency_key, "authorized", now=transition_now
@@ -244,6 +292,8 @@ class AdmissionWorkflow:
             transaction = self.transactions.transition(
                 transaction.idempotency_key, "pr_creating", now=transition_now
             )
+        if existing_ref is not None and transaction.status == "pr_open":
+            return AdmissionPreparation(candidate, transaction, plan, existing_ref)
         if existing_ref is None:
             finder = getattr(self.pr_client, "find_by_branch", None)
             if not callable(finder):
@@ -308,23 +358,34 @@ class AdmissionWorkflow:
     def reconcile_merge_by_key(
         self,
         idempotency_key: str,
-        merged_pr: MergedPullRequest,
+        provider: PullRequestStateProvider,
         *,
-        candidate_options: dict[str, object] | None = None,
         now: datetime | None = None,
     ) -> Path:
-        """Recover a merge after a webhook/process interruption using journal data only."""
+        """Recover a merge by querying the authoritative PR state provider."""
         transaction = self.transactions.get(idempotency_key)
         if transaction is None:
             raise MergeReconciliationError("admission transaction is missing")
         if transaction.pr_number is None or transaction.pr_url is None:
             raise MergeReconciliationError("admission transaction has no recorded PR")
+        reference = self._ref_from_transaction(transaction)
+        assert reference is not None
+        try:
+            merged_pr = provider.get_pull_request(reference)
+        except Exception as exc:
+            raise MergeReconciliationError("unable to verify pull request state") from exc
+        if not isinstance(merged_pr, MergedPullRequest):
+            raise MergeReconciliationError("pull request provider returned an invalid state")
         self._validate_merge_observation(transaction, merged_pr)
         if transaction.status == "admitted":
             path = self.service.projects.directory / f"{transaction.project_id}.yaml"
             if not path.is_file():
                 raise MergeReconciliationError("admission transaction is admitted but project file is missing")
             return path
+        if merged_pr.project is None:
+            raise MergeReconciliationError(
+                "authoritative merged project content is required for reconciliation"
+            )
         request = AdmissionRequest.from_dict(
             {
                 "schema_version": 1,
@@ -339,22 +400,16 @@ class AdmissionWorkflow:
                 "comment": None,
             }
         )
-        if merged_pr.project is not None:
-            project = merged_pr.project
-        else:
-            options = dict(candidate_options or {})
-            options.setdefault("project_id", transaction.project_id)
-            project = self.service.build_candidate(
-                request.project_url,
-                discovered_at=request.created_at,
-                **options,
-            )
+        project = merged_pr.project
         candidate = AuthorizedCandidate(
             project=project,
             request=request,
             decision=AuthorizationDecision(status="authorized", reason="trusted_user"),
         )
-        if candidate.project.repositories[0].repository_id != transaction.repository_id:
+        if (
+            candidate.project.primary_repository.provider != transaction.repository_provider
+            or candidate.project.primary_repository.repository_id != transaction.repository_id
+        ):
             raise MergeReconciliationError("reconciled repository identity changed")
         plan = self._plan(candidate, transaction.branch_name)
         preparation = AdmissionPreparation(
@@ -367,7 +422,7 @@ class AdmissionWorkflow:
                 head_branch=transaction.branch_name,
             ),
         )
-        return self.reconcile_merge(preparation, merged_pr, now=now)
+        return self._reconcile_merge(preparation, merged_pr, now=now)
 
     def reconcile_merge_from_provider(
         self,
@@ -383,9 +438,25 @@ class AdmissionWorkflow:
             raise MergeReconciliationError("unable to verify pull request state") from exc
         if not isinstance(merged_pr, MergedPullRequest):
             raise MergeReconciliationError("pull request provider returned an invalid state")
-        return self.reconcile_merge(preparation, merged_pr, now=now)
+        return self._reconcile_merge(preparation, merged_pr, now=now)
 
     def reconcile_merge(
+        self,
+        preparation: AdmissionPreparation,
+        merged_pr: MergedPullRequest,
+        *,
+        now: datetime | None = None,
+    ) -> Path:
+        """Reject unverified caller-supplied merge facts.
+
+        Use ``reconcile_merge_from_provider`` or ``reconcile_merge_by_key`` so
+        the state object is obtained from the read-only provider seam.
+        """
+        raise MergeReconciliationError(
+            "merge reconciliation requires an authoritative pull-request provider"
+        )
+
+    def _reconcile_merge(
         self,
         preparation: AdmissionPreparation,
         merged_pr: MergedPullRequest,
@@ -395,12 +466,32 @@ class AdmissionWorkflow:
         transaction = self.transactions.get(preparation.transaction.idempotency_key)
         if transaction is None:
             raise MergeReconciliationError("admission transaction is missing")
+        self._validate_preparation_identity(preparation, transaction)
         self._validate_merge_observation(transaction, merged_pr)
         if transaction.status == "admitted":
             path = self._project_path(preparation.candidate.project)
             if not path.is_file():
                 raise MergeReconciliationError("admission transaction is admitted but project file is missing")
             return path
+        if merged_pr.project is None:
+            raise MergeReconciliationError(
+                "authoritative merged project content is required for reconciliation"
+            )
+        if (
+            merged_pr.project.id != transaction.project_id
+            or merged_pr.project.primary_repository.provider
+            != transaction.repository_provider
+            or merged_pr.project.primary_repository.repository_id
+            != transaction.repository_id
+        ):
+            raise MergeReconciliationError(
+                "merged project identity does not match admission transaction"
+            )
+        candidate = AuthorizedCandidate(
+            project=merged_pr.project,
+            request=preparation.candidate.request,
+            decision=preparation.candidate.decision,
+        )
         merged_at = ensure_utc(now or datetime.now(timezone.utc))
         transaction = self.transactions.transition(
             transaction.idempotency_key,
@@ -410,25 +501,15 @@ class AdmissionWorkflow:
             merged_by=merged_pr.merged_by,
         )
         try:
-            candidate = preparation.candidate
-            if merged_pr.project is not None:
-                if (
-                    merged_pr.project.id != candidate.project.id
-                    or merged_pr.project.repositories[0].repository_id
-                    != candidate.project.repositories[0].repository_id
-                ):
-                    raise MergeReconciliationError(
-                        "merged project identity does not match admission transaction"
-                    )
-                candidate = AuthorizedCandidate(
-                    project=merged_pr.project,
-                    request=candidate.request,
-                    decision=candidate.decision,
-                )
-            path = self.service.admit(candidate, merge_confirmed=True)
+            path = self.service.admit(
+                candidate,
+                merge_confirmed=True,
+                merge_proof=self.service._merge_gate_token,
+            )
         except DuplicateRepositoryError:
             existing = self.service.projects.find_by_repository(
-                "github", candidate.project.repositories[0].repository_id
+                candidate.project.primary_repository.provider,
+                candidate.project.primary_repository.repository_id,
             )
             if (
                 existing is None
@@ -506,3 +587,59 @@ class AdmissionWorkflow:
             raise MergeReconciliationError("merged PR URL does not match admission transaction")
         if not isinstance(merged_pr.merged_by, str) or not merged_pr.merged_by.strip():
             raise MergeReconciliationError("a human merger identity is required")
+        actor = merged_pr.merged_by.strip()
+        normalized_actor = actor.lower()
+        known_bot_names = {
+            "dependabot",
+            "renovate",
+            "bot",
+            "github-actions",
+            "github-actions[bot]",
+        }
+        if (
+            merged_pr.is_bot
+            or normalized_actor.endswith("[bot]")
+            or normalized_actor in known_bot_names
+            or normalized_actor.endswith("-bot")
+            or normalized_actor.endswith("_bot")
+        ):
+            raise MergeReconciliationError("automated actors cannot cross the human merge gate")
+        if transaction.status in {"merged", "admitted"}:
+            if transaction.merge_commit_sha != merged_pr.merge_commit_sha:
+                raise MergeReconciliationError("merge commit identity changed")
+            if transaction.merged_by != merged_pr.merged_by.strip():
+                raise MergeReconciliationError("merge actor identity changed")
+
+    @staticmethod
+    def _validate_preparation_identity(
+        preparation: AdmissionPreparation,
+        transaction: AdmissionTransaction,
+    ) -> None:
+        candidate = preparation.candidate
+        request = candidate.request
+        if request.idempotency_key != transaction.idempotency_key:
+            raise MergeReconciliationError("candidate idempotency key does not match transaction")
+        for name in (
+            "request_id",
+            "intake_repository_id",
+            "issue_number",
+            "project_url",
+            "requester",
+        ):
+            if getattr(request, name) != getattr(transaction, name):
+                raise MergeReconciliationError(f"candidate request identity changed: {name}")
+        if candidate.project.id != transaction.project_id:
+            raise MergeReconciliationError("candidate project identity changed")
+        if (
+            candidate.project.primary_repository.provider != transaction.repository_provider
+            or candidate.project.primary_repository.repository_id != transaction.repository_id
+        ):
+            raise MergeReconciliationError("candidate repository identity changed")
+        if preparation.plan.idempotency_key != transaction.idempotency_key:
+            raise MergeReconciliationError("PR plan idempotency key does not match transaction")
+        if preparation.plan.head_branch != transaction.branch_name:
+            raise MergeReconciliationError("PR plan branch does not match transaction")
+        if preparation.pull_request.number != transaction.pr_number or (
+            preparation.pull_request.url != transaction.pr_url
+        ):
+            raise MergeReconciliationError("PR reference does not match transaction")

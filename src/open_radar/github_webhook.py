@@ -40,9 +40,40 @@ class VerifiedIssueEvent:
         return (
             isinstance(self._verifier, GitHubWebhookVerifier)
             and self._verifier._is_registered(self)
-            and self._snapshot
-            == (self.request, self.action, self.sender, self.label_name, self.delivery_id)
+            and len(self._snapshot) == 7
+            and self._snapshot[:5]
+            == (
+                self.request,
+                self.action,
+                self.sender,
+                self.label_name,
+                self.delivery_id,
+            )
+            and isinstance(self._snapshot[5], str)
+            and (self._snapshot[6] is None or isinstance(self._snapshot[6], str))
         )
+
+    @property
+    def payload_sha256(self) -> str:
+        return str(self._snapshot[5])
+
+    @property
+    def replay_managed(self) -> bool:
+        """Whether this event was claimed by a durable replay store."""
+        return (
+            isinstance(self._verifier, GitHubWebhookVerifier)
+            and self._verifier._replay_store is not None
+        )
+
+    def complete_replay(self, *, idempotency_key: str | None = None) -> bool:
+        if not self.is_verified():
+            raise WebhookVerificationError("event is not a live verified event")
+        return self._verifier._complete_replay(self, idempotency_key=idempotency_key)
+
+    def fail_replay(self, *, reason: str | None = None) -> bool:
+        if not self.is_verified():
+            raise WebhookVerificationError("event is not a live verified event")
+        return self._verifier._fail_replay(self, reason=reason)
 
 
 class GitHubWebhookVerifier:
@@ -55,6 +86,7 @@ class GitHubWebhookVerifier:
         expected_repository_id: int,
         max_body_bytes: int = 1_048_576,
         replay_store: ReplayStore | None = None,
+        allow_untracked_replay: bool = False,
     ) -> None:
         if isinstance(secret, str):
             secret = secret.encode("utf-8")
@@ -64,6 +96,22 @@ class GitHubWebhookVerifier:
             raise ValueError("expected_repository_id must be a positive integer")
         if isinstance(max_body_bytes, bool) or not isinstance(max_body_bytes, int) or max_body_bytes <= 0:
             raise ValueError("max_body_bytes must be positive")
+        if not isinstance(allow_untracked_replay, bool):
+            raise ValueError("allow_untracked_replay must be boolean")
+        if replay_store is None and not allow_untracked_replay:
+            raise ValueError(
+                "a durable replay_store is required; set allow_untracked_replay=True only for offline verification"
+            )
+        if replay_store is not None:
+            missing = [
+                name
+                for name in ("claim", "complete", "fail")
+                if not callable(getattr(replay_store, name, None))
+            ]
+            if missing:
+                raise ValueError(
+                    f"replay_store is missing required methods: {', '.join(missing)}"
+                )
         self._secret = secret
         self._expected_repository_id = expected_repository_id
         self._max_body_bytes = max_body_bytes
@@ -76,6 +124,32 @@ class GitHubWebhookVerifier:
     def _is_registered(self, event: VerifiedIssueEvent) -> bool:
         reference = self._verified_events.get(id(event))
         return reference is not None and reference() is event
+
+    def _complete_replay(
+        self, event: VerifiedIssueEvent, *, idempotency_key: str | None = None
+    ) -> bool:
+        if self._replay_store is None:
+            return True
+        complete = getattr(self._replay_store, "complete", None)
+        if not callable(complete):
+            return True
+        claim_token = event._snapshot[6] if isinstance(event._snapshot[6], str) else None
+        return complete(
+            event.delivery_id,
+            claim_token=claim_token,
+            idempotency_key=idempotency_key,
+        )
+
+    def _fail_replay(self, event: VerifiedIssueEvent, *, reason: str | None = None) -> bool:
+        if self._replay_store is None:
+            return True
+        fail = getattr(self._replay_store, "fail", None)
+        if not callable(fail):
+            return True
+        claim_token = event._snapshot[6] if isinstance(event._snapshot[6], str) else None
+        return fail(
+            event.delivery_id, claim_token=claim_token, reason=reason
+        )
 
     def verify_issue_event(
         self,
@@ -123,12 +197,22 @@ class GitHubWebhookVerifier:
         except ValueError as exc:
             raise WebhookVerificationError("invalid GitHub Issue payload") from exc
         normalized_delivery_id = delivery_id.strip()
-        if self._replay_store is not None and not self._replay_store.claim(
-            normalized_delivery_id
-        ):
+        payload_sha256 = hashlib.sha256(body).hexdigest()
+        claimed = True
+        if self._replay_store is not None:
+            claimed = self._replay_store.claim(
+                normalized_delivery_id,
+                payload_sha256=payload_sha256,
+            )
+        if not claimed:
             raise WebhookReplayError(
                 f"GitHub webhook delivery has already been consumed: {normalized_delivery_id}"
             )
+        claim_token = None
+        if self._replay_store is not None:
+            get_claim_token = getattr(self._replay_store, "get_claim_token", None)
+            if callable(get_claim_token):
+                claim_token = get_claim_token(normalized_delivery_id)
         event = VerifiedIssueEvent(
             request=request,
             action=action,
@@ -142,6 +226,8 @@ class GitHubWebhookVerifier:
                 sender_login.strip(),
                 label_name.strip() if isinstance(label_name, str) else None,
                 normalized_delivery_id,
+                payload_sha256,
+                claim_token,
             ),
         )
         self._register(event)

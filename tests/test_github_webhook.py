@@ -31,10 +31,14 @@ class GitHubWebhookTests(unittest.TestCase):
         digest = hmac.new(secret, body, hashlib.sha256).hexdigest()
         return body, f"sha256={digest}"
 
+    def test_durable_replay_store_is_required_by_default(self):
+        with self.assertRaises(ValueError):
+            GitHubWebhookVerifier(b"test-secret", expected_repository_id=987654321)
+
     def test_valid_signature_yields_verified_issue_request(self):
         body, signature = self.signed()
         event = GitHubWebhookVerifier(
-            b"test-secret", expected_repository_id=987654321
+            b"test-secret", expected_repository_id=987654321, allow_untracked_replay=True
         ).verify_issue_event(
             body,
             signature,
@@ -53,7 +57,7 @@ class GitHubWebhookTests(unittest.TestCase):
         body, _ = self.signed()
         with self.assertRaises(WebhookVerificationError):
             GitHubWebhookVerifier(
-                b"test-secret", expected_repository_id=987654321
+                b"test-secret", expected_repository_id=987654321, allow_untracked_replay=True
             ).verify_issue_event(
                 body,
                 "sha256=" + ("0" * 64),
@@ -65,7 +69,7 @@ class GitHubWebhookTests(unittest.TestCase):
         body, signature = self.signed()
         with self.assertRaises(WebhookVerificationError):
             GitHubWebhookVerifier(
-                b"test-secret", expected_repository_id=123
+                b"test-secret", expected_repository_id=123, allow_untracked_replay=True
             ).verify_issue_event(
                 body,
                 signature,
@@ -76,7 +80,7 @@ class GitHubWebhookTests(unittest.TestCase):
     def test_wrong_event_or_unsupported_action_is_rejected(self):
         body, signature = self.signed()
         verifier = GitHubWebhookVerifier(
-            b"test-secret", expected_repository_id=987654321
+            b"test-secret", expected_repository_id=987654321, allow_untracked_replay=True
         )
         with self.assertRaises(WebhookVerificationError):
             verifier.verify_issue_event(
@@ -118,7 +122,7 @@ class GitHubWebhookTests(unittest.TestCase):
         }
         body, signature = self.signed(payload)
         event = GitHubWebhookVerifier(
-            b"test-secret", expected_repository_id=987654321
+            b"test-secret", expected_repository_id=987654321, allow_untracked_replay=True
         ).verify_issue_event(
             body,
             signature,
@@ -145,7 +149,7 @@ class GitHubWebhookTests(unittest.TestCase):
 
     def test_malformed_signature_and_payload_are_rejected(self):
         verifier = GitHubWebhookVerifier(
-            b"test-secret", expected_repository_id=987654321
+            b"test-secret", expected_repository_id=987654321, allow_untracked_replay=True
         )
         with self.assertRaises(WebhookVerificationError):
             verifier.verify_issue_event(
@@ -173,7 +177,8 @@ class GitHubWebhookTests(unittest.TestCase):
         with self.assertRaises(WebhookVerificationError):
             body, signature = self.signed()
             GitHubWebhookVerifier(
-                b"test-secret", expected_repository_id=987654321, max_body_bytes=1
+                b"test-secret", expected_repository_id=987654321, max_body_bytes=1,
+                allow_untracked_replay=True,
             ).verify_issue_event(
                 body,
                 signature,

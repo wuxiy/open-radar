@@ -151,6 +151,11 @@ class Project:
     why_interesting: tuple[str, ...] = field(default_factory=tuple)
     use_cases: tuple[str, ...] = field(default_factory=tuple)
 
+    @property
+    def primary_repository(self) -> RepositoryRef:
+        """Return the repository marked primary, independent of list order."""
+        return next(repository for repository in self.repositories if repository.role == "primary")
+
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "Project":
         validate_project_data(data)
@@ -370,8 +375,13 @@ def validate_observation_data(data: Mapping[str, Any]) -> None:
     repository_id = data.get("repository_id")
     if not isinstance(repository_id, int) or isinstance(repository_id, bool) or repository_id <= 0:
         raise ValidationError("observation.repository_id must be a positive integer")
-    for field_name in ("scheduled_at", "observed_at", "recorded_at"):
-        _parse_utc(data.get(field_name), f"observation.{field_name}")
+    scheduled_at = _parse_utc(data.get("scheduled_at"), "observation.scheduled_at")
+    observed_at = _parse_utc(data.get("observed_at"), "observation.observed_at")
+    recorded_at = _parse_utc(data.get("recorded_at"), "observation.recorded_at")
+    if not scheduled_at <= observed_at <= recorded_at:
+        raise ValidationError(
+            "observation timestamps must satisfy scheduled_at <= observed_at <= recorded_at"
+        )
 
     metrics = data.get("metrics")
     if not isinstance(metrics, Mapping):

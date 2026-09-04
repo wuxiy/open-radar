@@ -17,7 +17,7 @@ from open_radar.admission_controls import (
 from open_radar.admission_transactions import AdmissionTransactionStore
 from open_radar.admission_transactions import AdmissionTransaction, TransactionConflictError
 from open_radar.github_provider import GitHubProvider
-from open_radar.github_webhook import GitHubWebhookVerifier
+from open_radar.github_webhook import GitHubWebhookVerifier, WebhookReplayError
 from open_radar.storage import ObservationStore, ProjectStore
 from open_radar.workflows.admission import AdmissionService
 from open_radar.workflows.admission_pr import (
@@ -30,6 +30,7 @@ from open_radar.workflows.collection import CollectionService
 from open_radar.generation import render_readme
 from open_radar.publisher import ObservationOnlyPublisher, PublisherArtifact
 from open_radar.domain import Project
+from open_radar.taxonomy import Taxonomy
 
 
 PAYLOAD = {
@@ -52,6 +53,14 @@ class FakeClient:
         return PAYLOAD
 
 
+class StaticPullRequestProvider:
+    def __init__(self, state):
+        self.state = state
+
+    def get_pull_request(self, reference):
+        return self.state
+
+
 class AdmissionPrE2ETests(unittest.TestCase):
     def event(self, replay_store=None, delivery_id="delivery-42"):
         payload = {
@@ -69,7 +78,8 @@ class AdmissionPrE2ETests(unittest.TestCase):
         body = json.dumps(payload, separators=(",", ":")).encode()
         signature = "sha256=" + hmac.new(b"secret", body, hashlib.sha256).hexdigest()
         return GitHubWebhookVerifier(
-            b"secret", expected_repository_id=987654321, replay_store=replay_store
+            b"secret", expected_repository_id=987654321, replay_store=replay_store,
+            allow_untracked_replay=replay_store is None,
         ).verify_issue_event(
             body, signature, event_name="issues", delivery_id=delivery_id
         )
@@ -80,7 +90,10 @@ class AdmissionPrE2ETests(unittest.TestCase):
             subprocess.run(["git", "init", "--quiet", str(root)], check=True)
             projects = ProjectStore(root)
             observations = ObservationStore(root)
-            service = AdmissionService(GitHubProvider(FakeClient()), projects)
+            service = AdmissionService(
+                GitHubProvider(FakeClient()), projects,
+                Taxonomy({"uncategorized", "automation"}, {"automation"}),
+            )
             workflow = AdmissionWorkflow(
                 service,
                 AuthorizationPolicy(trusted_users={"contributor"}),
@@ -89,7 +102,7 @@ class AdmissionPrE2ETests(unittest.TestCase):
                     AuthorizationPolicy(trusted_users={"contributor"}),
                     DurableRateBudgetController(
                         root,
-                        RateBudgetPolicy(max_requests=1, max_budget_units=1),
+                        RateBudgetPolicy(max_requests=2, max_budget_units=2),
                     ),
                 ),
             )
@@ -97,22 +110,24 @@ class AdmissionPrE2ETests(unittest.TestCase):
             preparation = workflow.prepare(self.event(replay_store))
             self.assertEqual(preparation.transaction.status, "pr_open")
             self.assertEqual(preparation.plan.files[0][0], "data/projects/radar-demo.yaml")
+            with self.assertRaises(WebhookReplayError):
+                self.event(replay_store)
             retry = workflow.prepare(self.event(replay_store, "delivery-43"))
             self.assertEqual(retry.pull_request.number, preparation.pull_request.number)
             with self.assertRaises(MergeReconciliationError):
-                workflow.reconcile_merge(
+                workflow.reconcile_merge_from_provider(
                     preparation,
-                    MergedPullRequest(
+                    StaticPullRequestProvider(MergedPullRequest(
                         number=preparation.pull_request.number,
                         head_branch=preparation.pull_request.head_branch,
                         merged=False,
                         merge_commit_sha=None,
                         merged_by=None,
-                    ),
+                    )),
                 )
-            path = workflow.reconcile_merge(
+            path = workflow.reconcile_merge_from_provider(
                 preparation,
-                MergedPullRequest(
+                StaticPullRequestProvider(MergedPullRequest(
                     number=preparation.pull_request.number,
                     head_branch=preparation.pull_request.head_branch,
                     merged=True,
@@ -124,30 +139,30 @@ class AdmissionPrE2ETests(unittest.TestCase):
                             "display_name": "Reviewed Radar Demo",
                         }
                     ),
-                ),
+                )),
             )
             self.assertTrue(path.is_file())
             self.assertEqual(len(projects.all()), 1)
             self.assertEqual(projects.load("radar-demo").display_name, "Reviewed Radar Demo")
-            self.assertEqual(workflow.reconcile_merge(
+            self.assertEqual(workflow.reconcile_merge_from_provider(
                 preparation,
-                MergedPullRequest(
+                StaticPullRequestProvider(MergedPullRequest(
                     number=preparation.pull_request.number,
                     head_branch=preparation.pull_request.head_branch,
                     merged=True,
                     merge_commit_sha="abc123",
                     merged_by="maintainer",
-                ),
+                )),
             ), path)
             self.assertEqual(workflow.reconcile_merge_by_key(
                 preparation.transaction.idempotency_key,
-                MergedPullRequest(
+                StaticPullRequestProvider(MergedPullRequest(
                     number=preparation.pull_request.number,
                     head_branch=preparation.pull_request.head_branch,
                     merged=True,
                     merge_commit_sha="abc123",
                     merged_by="maintainer",
-                ),
+                )),
             ), path)
 
             collector = CollectionService(GitHubProvider(FakeClient()), projects, observations)
@@ -165,6 +180,9 @@ class AdmissionPrE2ETests(unittest.TestCase):
                         path="data/observations/github/2026-09.jsonl",
                         content=observation_path.read_text(encoding="utf-8"),
                         kind="observation",
+                        base_sha256=hashlib.sha256(
+                            observation_path.read_bytes()
+                        ).hexdigest(),
                     ),
                 ]
             )
@@ -189,23 +207,116 @@ class AdmissionPrE2ETests(unittest.TestCase):
 
         with TemporaryDirectory() as directory:
             root = Path(directory)
-            service = AdmissionService(GitHubProvider(FakeClient()), ProjectStore(root))
+            service = AdmissionService(
+                GitHubProvider(FakeClient()), ProjectStore(root),
+                Taxonomy({"uncategorized", "automation"}, {"automation"}),
+            )
             transactions = AdmissionTransactionStore(root)
             client = FailingOnceClient()
+            replay_store = DurableReplayStore(root)
             workflow = AdmissionWorkflow(
                 service,
                 AuthorizationPolicy(trusted_users={"contributor"}),
                 transactions,
                 pr_client=client,
+                allow_uncontrolled=True,
             )
             with self.assertRaises(RuntimeError):
-                workflow.prepare(self.event())
+                workflow.prepare(self.event(replay_store))
             transaction = transactions.get("github:987654321:issue-42")
             self.assertEqual(transaction.status, "failed")
             self.assertIn("simulated provider interruption", transaction.last_error)
-            preparation = workflow.prepare(self.event(delivery_id="delivery-43"))
+            preparation = workflow.prepare(self.event(replay_store))
             self.assertEqual(preparation.transaction.status, "pr_open")
             self.assertEqual(client.calls, 1)
+
+    def test_reconcile_requires_authoritative_merged_project(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = AdmissionService(
+                GitHubProvider(FakeClient()), ProjectStore(root),
+                Taxonomy({"uncategorized", "automation"}, {"automation"}),
+            )
+            workflow = AdmissionWorkflow(
+                service,
+                AuthorizationPolicy(trusted_users={"contributor"}),
+                AdmissionTransactionStore(root),
+                allow_uncontrolled=True,
+            )
+            preparation = workflow.prepare(self.event())
+            with self.assertRaises(MergeReconciliationError):
+                workflow.reconcile_merge(
+                    preparation,
+                    MergedPullRequest(
+                        number=preparation.pull_request.number,
+                        head_branch=preparation.pull_request.head_branch,
+                        merged=True,
+                        merge_commit_sha="abc123",
+                        merged_by="maintainer",
+                    ),
+                )
+
+    def test_automated_merge_actor_cannot_cross_human_gate(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = AdmissionService(
+                GitHubProvider(FakeClient()), ProjectStore(root),
+                Taxonomy({"uncategorized", "automation"}, {"automation"}),
+            )
+            workflow = AdmissionWorkflow(
+                service,
+                AuthorizationPolicy(trusted_users={"contributor"}),
+                AdmissionTransactionStore(root),
+                allow_uncontrolled=True,
+            )
+            preparation = workflow.prepare(self.event())
+            state = MergedPullRequest(
+                number=preparation.pull_request.number,
+                head_branch=preparation.pull_request.head_branch,
+                merged=True,
+                merge_commit_sha="abc123",
+                merged_by="github-actions[bot]",
+                project=preparation.candidate.project,
+            )
+            with self.assertRaises(MergeReconciliationError):
+                workflow.reconcile_merge_from_provider(
+                    preparation, StaticPullRequestProvider(state)
+                )
+
+    def test_invalid_merged_project_does_not_advance_transaction(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = AdmissionService(
+                GitHubProvider(FakeClient()), ProjectStore(root),
+                Taxonomy({"uncategorized", "automation"}, {"automation"}),
+            )
+            transactions = AdmissionTransactionStore(root)
+            workflow = AdmissionWorkflow(
+                service,
+                AuthorizationPolicy(trusted_users={"contributor"}),
+                transactions,
+                allow_uncontrolled=True,
+            )
+            preparation = workflow.prepare(self.event())
+            wrong_project = Project.from_dict(
+                {
+                    **preparation.candidate.project.to_dict(),
+                    "id": "other-project",
+                }
+            )
+            with self.assertRaises(MergeReconciliationError):
+                workflow.reconcile_merge_from_provider(
+                    preparation,
+                    StaticPullRequestProvider(MergedPullRequest(
+                        number=preparation.pull_request.number,
+                        head_branch=preparation.pull_request.head_branch,
+                        merged=True,
+                        merge_commit_sha="abc123",
+                        merged_by="maintainer",
+                        project=wrong_project,
+                    )),
+                )
+            self.assertEqual(transactions.get(preparation.transaction.idempotency_key).status, "pr_open")
 
     def test_transaction_identity_cannot_be_rebound(self):
         from dataclasses import replace
@@ -232,6 +343,46 @@ class AdmissionPrE2ETests(unittest.TestCase):
             store.ensure(transaction)
             with self.assertRaises(TransactionConflictError):
                 store.ensure(replace(transaction, requester="mallory"))
+
+    def test_merge_facts_are_immutable_after_first_reconciliation(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            store = AdmissionTransactionStore(root)
+            now = datetime(2026, 9, 4, tzinfo=timezone.utc)
+            transaction = AdmissionTransaction(
+                schema_version=1,
+                idempotency_key="github:9:issue-1",
+                request_id="issue-1",
+                intake_repository_id="9",
+                issue_number=1,
+                project_id="radar-demo",
+                repository_id=100000001,
+                project_url="https://github.com/example-org/radar-demo",
+                requester="alice",
+                branch_name="admission/github-9-issue-1",
+                status="pr_open",
+                created_at=now,
+                updated_at=now,
+                pr_number=10001,
+                pr_url="https://github.com/open-radar/admissions/pull/10001",
+            )
+            store.ensure(transaction)
+            merged = store.transition(
+                transaction.idempotency_key,
+                "merged",
+                now=now,
+                merge_commit_sha="sha-a",
+                merged_by="alice",
+            )
+            self.assertEqual(merged.merge_commit_sha, "sha-a")
+            with self.assertRaises(TransactionConflictError):
+                store.transition(
+                    transaction.idempotency_key,
+                    "merged",
+                    now=now,
+                    merge_commit_sha="sha-b",
+                    merged_by="bob",
+                )
 
 
 if __name__ == "__main__":

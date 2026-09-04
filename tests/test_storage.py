@@ -163,6 +163,58 @@ class ObservationStoreTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 store.append(branch)
 
+    def test_append_batch_validates_before_writing_any_record(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ObservationStore(Path(directory))
+            first = sample_observation(event_id="obs-batch-001", collection_key="slot-a")
+            conflicting = sample_observation(
+                event_id="obs-batch-002", collection_key="slot-a", stars=99
+            )
+            with self.assertRaises(DuplicateCollectionError):
+                store.append_batch([first, conflicting])
+            self.assertEqual(store.all(), [])
+
+    def test_late_record_is_routed_to_current_writable_partition(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ObservationStore(Path(directory))
+            late = ObservationRecord.from_dict(
+                {
+                    **sample_observation(
+                        event_id="obs-late", collection_key="slot-late"
+                    ).to_dict(),
+                    "scheduled_at": "2026-08-01T00:00:00Z",
+                    "observed_at": "2026-08-01T00:02:00Z",
+                    "recorded_at": "2026-08-01T00:03:00Z",
+                }
+            )
+            store.append(late)
+            self.assertFalse(
+                (Path(directory) / "data" / "observations" / "github" / "2026-08.jsonl").exists()
+            )
+            self.assertTrue(
+                (Path(directory) / "data" / "observations" / "github" / "2026-09.jsonl").exists()
+            )
+
+    def test_future_record_is_clamped_to_current_partition(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ObservationStore(Path(directory))
+            current = sample_observation(event_id="obs-current", collection_key="slot-current")
+            future = ObservationRecord.from_dict(
+                {
+                    **sample_observation(
+                        event_id="obs-future", collection_key="slot-future"
+                    ).to_dict(),
+                    "scheduled_at": "2026-10-01T00:00:00Z",
+                    "observed_at": "2026-10-01T00:02:00Z",
+                    "recorded_at": "2026-10-01T00:03:00Z",
+                }
+            )
+            self.assertEqual(store.append_batch([current, future]), 2)
+            self.assertEqual(len(store.all()), 2)
+            self.assertFalse(
+                (Path(directory) / "data" / "observations" / "github" / "2026-10.jsonl").exists()
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

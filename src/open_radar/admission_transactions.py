@@ -24,6 +24,7 @@ _TRANSACTION_KEYS = {
     "intake_repository_id",
     "issue_number",
     "project_id",
+    "repository_provider",
     "repository_id",
     "project_url",
     "requester",
@@ -92,6 +93,7 @@ class AdmissionTransaction:
     merge_commit_sha: str | None = None
     merged_by: str | None = None
     last_error: str | None = None
+    repository_provider: str = "github"
 
     def __post_init__(self) -> None:
         if self.schema_version != 1:
@@ -108,6 +110,7 @@ class AdmissionTransaction:
             raise AdmissionTransactionError("transaction.project_id must be a lowercase slug")
         if isinstance(self.repository_id, bool) or not isinstance(self.repository_id, int) or self.repository_id <= 0:
             raise AdmissionTransactionError("transaction.repository_id must be positive")
+        _text(self.repository_provider, "transaction.repository_provider")
         if not isinstance(self.project_url, str) or not self.project_url.strip():
             raise AdmissionTransactionError("transaction.project_url is required")
         _text(self.project_url, "transaction.project_url")
@@ -139,6 +142,23 @@ class AdmissionTransaction:
                 _text(value, name, max_length=2048 if name.endswith("pr_url") else 512)
                 if name == "transaction.pr_url" and not value.startswith("https://"):
                     raise AdmissionTransactionError("transaction.pr_url must use HTTPS")
+        if self.status in {"merged", "admitted"} and (
+            not self.merge_commit_sha or not self.merged_by
+        ):
+            raise AdmissionTransactionError(
+                f"transaction.{self.status} requires merge_commit_sha and merged_by"
+            )
+        if self.status in {"merged", "admitted"} and self.merged_by:
+            if self.merged_by.strip().lower().endswith("[bot]"):
+                raise AdmissionTransactionError(
+                    "automated merger identities cannot be recorded as human merges"
+                )
+        if self.status in {"pr_open", "merged", "admitted"} and (
+            self.pr_number is None or self.pr_url is None
+        ):
+            raise AdmissionTransactionError(
+                f"transaction.{self.status} requires a recorded pull request"
+            )
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "AdmissionTransaction":
@@ -155,6 +175,7 @@ class AdmissionTransaction:
             issue_number=data.get("issue_number"),
             project_id=data.get("project_id"),
             repository_id=data.get("repository_id"),
+            repository_provider=data.get("repository_provider", "github"),
             project_url=data.get("project_url"),
             requester=data.get("requester"),
             branch_name=data.get("branch_name"),
@@ -177,6 +198,7 @@ class AdmissionTransaction:
             "issue_number": self.issue_number,
             "project_id": self.project_id,
             "repository_id": self.repository_id,
+            "repository_provider": self.repository_provider,
             "project_url": self.project_url,
             "requester": self.requester,
             "branch_name": self.branch_name,
@@ -196,7 +218,7 @@ _ALLOWED_TRANSITIONS: dict[str, frozenset[str]] = {
     "authorized": frozenset({"authorized", "pr_creating", "rejected", "failed"}),
     "pr_creating": frozenset({"pr_creating", "pr_open", "rejected", "failed"}),
     "pr_open": frozenset({"pr_open", "merged", "rejected", "failed"}),
-    "merged": frozenset({"merged", "admitted", "failed"}),
+    "merged": frozenset({"merged", "admitted"}),
     "admitted": frozenset({"admitted"}),
     "rejected": frozenset({"rejected"}),
     "failed": frozenset({"failed", "authorized", "pr_creating", "pr_open"}),
@@ -304,6 +326,7 @@ class AdmissionTransactionStore:
                     "issue_number",
                     "project_id",
                     "repository_id",
+                    "repository_provider",
                     "project_url",
                     "requester",
                     "branch_name",
@@ -329,6 +352,12 @@ class AdmissionTransactionStore:
                 updated_at=updated_at,
                 **changes,
             )
+            if current.status in {"merged", "admitted"}:
+                for name in ("merge_commit_sha", "merged_by"):
+                    if getattr(updated, name) != getattr(current, name):
+                        raise TransactionConflictError(
+                            f"merged transaction fact {name} cannot be changed"
+                        )
             if updated == current:
                 return current
             self._append(updated)
@@ -353,6 +382,7 @@ class AdmissionTransactionStore:
                 "issue_number",
                 "project_id",
                 "repository_id",
+                "repository_provider",
                 "project_url",
                 "requester",
                 "branch_name",

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 from typing import Iterator, Protocol
+import uuid
 
 from .admission_request import (
     AdmissionAuthorizationError,
@@ -31,18 +32,63 @@ def _utc_now(value: datetime | None) -> datetime:
     return ensure_utc(value or datetime.now(timezone.utc))
 
 
+@dataclass(frozen=True)
+class ReplayRecord:
+    delivery_id: str
+    status: str
+    claimed_at: datetime
+    payload_sha256: str | None = None
+    completed_at: datetime | None = None
+    idempotency_key: str | None = None
+    last_error: str | None = None
+    claim_token: str | None = None
+
+
 class ReplayStore(Protocol):
-    def claim(self, delivery_id: str, *, received_at: datetime | None = None) -> bool: ...
+    def claim(
+        self,
+        delivery_id: str,
+        *,
+        payload_sha256: str | None = None,
+        received_at: datetime | None = None,
+    ) -> bool: ...
+
+    def complete(
+        self,
+        delivery_id: str,
+        *,
+        claim_token: str | None = None,
+        idempotency_key: str | None = None,
+        completed_at: datetime | None = None,
+    ) -> bool: ...
+
+    def fail(
+        self,
+        delivery_id: str,
+        *,
+        claim_token: str | None = None,
+        reason: str | None = None,
+        failed_at: datetime | None = None,
+    ) -> bool: ...
 
 
 class DurableReplayStore:
-    """Append-only delivery ledger shared by verifier processes.
+    """Append-only delivery ledger with recoverable processing state.
 
-    Only the delivery id and timestamp are stored.  The payload and signature are
-    deliberately not retained, so the ledger is safe to keep with run metadata.
+    The verifier records ``processing`` before business work starts.  The
+    workflow records ``completed`` only after its durable transaction is ready,
+    or ``failed`` when the transaction can be retried.  Payload bytes and
+    signatures are never retained; the optional digest only prevents delivery
+    id rebinding.
     """
 
-    def __init__(self, root_or_path: Path) -> None:
+    def __init__(self, root_or_path: Path, *, processing_timeout_seconds: int = 300) -> None:
+        if (
+            isinstance(processing_timeout_seconds, bool)
+            or not isinstance(processing_timeout_seconds, int)
+            or processing_timeout_seconds <= 0
+        ):
+            raise ValueError("processing_timeout_seconds must be a positive integer")
         value = Path(root_or_path)
         self.path = (
             value
@@ -50,6 +96,8 @@ class DurableReplayStore:
             else value / "data" / "runs" / "webhook-deliveries.jsonl"
         )
         self.lock_path = self.path.with_name(f".{self.path.name}.lock")
+        self.processing_timeout = timedelta(seconds=processing_timeout_seconds)
+        self._claim_tokens: dict[str, str] = {}
 
     @contextmanager
     def _locked(self) -> Iterator[None]:
@@ -66,10 +114,10 @@ class DurableReplayStore:
             finally:
                 lock_file.close()
 
-    def _delivery_ids(self) -> set[str]:
+    def _records(self) -> list[dict[str, object]]:
         if not self.path.exists():
-            return set()
-        result: set[str] = set()
+            return []
+        result: list[dict[str, object]] = []
         for line_number, line in enumerate(
             self.path.read_text(encoding="utf-8").splitlines(), start=1
         ):
@@ -79,40 +127,248 @@ class DurableReplayStore:
                 record = json.loads(line)
             except json.JSONDecodeError as exc:
                 raise ValueError(f"replay ledger line {line_number} is not JSON") from exc
-            if not isinstance(record, dict) or record.get("schema_version") != 1:
+            if not isinstance(record, dict) or record.get("schema_version") not in (1, 2):
                 raise ValueError(f"replay ledger line {line_number} has an invalid schema")
             delivery_id = record.get("delivery_id")
             if not isinstance(delivery_id, str) or not delivery_id.strip():
                 raise ValueError(f"replay ledger line {line_number} has an invalid delivery_id")
-            result.add(delivery_id)
+            if record.get("schema_version") == 1:
+                # Version 1 entries were claimed before completion existed.  Treat
+                # them as completed so upgrading cannot accidentally replay them.
+                record = {
+                    "schema_version": 2,
+                    "delivery_id": delivery_id,
+                    "status": "completed",
+                    "claimed_at": record.get("received_at"),
+                    "completed_at": record.get("received_at"),
+                }
+            status = record.get("status")
+            if status not in {"processing", "completed", "failed"}:
+                raise ValueError(f"replay ledger line {line_number} has an invalid status")
+            claimed_at = record.get("claimed_at")
+            try:
+                datetime.fromisoformat(str(claimed_at).replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(f"replay ledger line {line_number} has an invalid claimed_at") from exc
+            payload_sha256 = record.get("payload_sha256")
+            if payload_sha256 is not None and (
+                not isinstance(payload_sha256, str) or len(payload_sha256) != 64
+            ):
+                raise ValueError(f"replay ledger line {line_number} has an invalid payload_sha256")
+            claim_token = record.get("claim_token")
+            if claim_token is not None and (
+                not isinstance(claim_token, str) or not claim_token.strip()
+            ):
+                raise ValueError(f"replay ledger line {line_number} has an invalid claim_token")
+            result.append(record)
         return result
 
-    def claim(self, delivery_id: str, *, received_at: datetime | None = None) -> bool:
+    def _latest(self) -> dict[str, dict[str, object]]:
+        latest: dict[str, dict[str, object]] = {}
+        for record in self._records():
+            latest[str(record["delivery_id"])] = record
+        return latest
+
+    def _append(self, record: dict[str, object]) -> None:
+        with self.path.open("a", encoding="utf-8") as stream:
+            stream.write(
+                json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                + "\n"
+            )
+
+    @staticmethod
+    def _validate_digest(payload_sha256: str | None) -> str | None:
+        if payload_sha256 is None:
+            return None
+        if not isinstance(payload_sha256, str) or len(payload_sha256) != 64:
+            raise ValueError("payload_sha256 must be a SHA-256 hex digest")
+        try:
+            int(payload_sha256, 16)
+        except ValueError as exc:
+            raise ValueError("payload_sha256 must be a SHA-256 hex digest") from exc
+        return payload_sha256.lower()
+
+    def claim(
+        self,
+        delivery_id: str,
+        *,
+        payload_sha256: str | None = None,
+        received_at: datetime | None = None,
+    ) -> bool:
         delivery_id = _safe_key(delivery_id, "delivery_id")
-        timestamp = iso_utc(_utc_now(received_at))
+        payload_sha256 = self._validate_digest(payload_sha256)
+        claim_token = uuid.uuid4().hex
+        now = _utc_now(received_at)
         with self._locked():
-            if delivery_id in self._delivery_ids():
-                return False
-            with self.path.open("a", encoding="utf-8") as stream:
-                stream.write(
-                    json.dumps(
-                        {
-                            "schema_version": 1,
-                            "delivery_id": delivery_id,
-                            "received_at": timestamp,
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        separators=(",", ":"),
+            current = self._latest().get(delivery_id)
+            if current is not None:
+                known_digest = current.get("payload_sha256")
+                if known_digest is not None and payload_sha256 != known_digest:
+                    raise ValueError("delivery_id was previously used for a different payload")
+                status = current.get("status")
+                if status == "completed":
+                    return False
+                if status == "processing":
+                    claimed_at = datetime.fromisoformat(
+                        str(current["claimed_at"]).replace("Z", "+00:00")
                     )
-                    + "\n"
-                )
+                    if now - ensure_utc(claimed_at) <= self.processing_timeout:
+                        return False
+                # A failed or stale processing record is reclaimable.
+            self._append(
+                {
+                    "schema_version": 2,
+                    "delivery_id": delivery_id,
+                    "status": "processing",
+                    "claimed_at": iso_utc(now),
+                    "payload_sha256": payload_sha256,
+                    "claim_token": claim_token,
+                }
+            )
+            self._claim_tokens[delivery_id] = claim_token
+            return True
+
+    def get_claim_token(self, delivery_id: str) -> str | None:
+        delivery_id = _safe_key(delivery_id, "delivery_id")
+        with self._locked():
+            current = self._latest().get(delivery_id)
+            if current is None or current.get("status") != "processing":
+                return None
+            token = current.get("claim_token")
+            return str(token) if token is not None else None
+
+    def complete(
+        self,
+        delivery_id: str,
+        *,
+        claim_token: str | None = None,
+        idempotency_key: str | None = None,
+        completed_at: datetime | None = None,
+    ) -> bool:
+        delivery_id = _safe_key(delivery_id, "delivery_id")
+        claim_token = claim_token or self._claim_tokens.get(delivery_id)
+        if claim_token is not None:
+            claim_token = _safe_key(claim_token, "claim_token")
+        idempotency_key = (
+            _safe_key(idempotency_key, "idempotency_key") if idempotency_key is not None else None
+        )
+        now = _utc_now(completed_at)
+        with self._locked():
+            current = self._latest().get(delivery_id)
+            if current is None:
+                return False
+            if current.get("status") == "completed":
+                recorded_key = current.get("idempotency_key")
+                if (
+                    idempotency_key is not None
+                    and recorded_key is not None
+                    and recorded_key != idempotency_key
+                ):
+                    return False
+                return True
+            if current.get("status") != "processing":
+                return False
+            current_token = current.get("claim_token")
+            if current_token is not None and claim_token != current_token:
+                return False
+            self._append(
+                {
+                    "schema_version": 2,
+                    "delivery_id": delivery_id,
+                    "status": "completed",
+                    "claimed_at": current.get("claimed_at"),
+                    "completed_at": iso_utc(now),
+                    "payload_sha256": current.get("payload_sha256"),
+                    "idempotency_key": idempotency_key,
+                    "claim_token": current_token,
+                }
+            )
+            return True
+
+    def fail(
+        self,
+        delivery_id: str,
+        *,
+        claim_token: str | None = None,
+        reason: str | None = None,
+        failed_at: datetime | None = None,
+    ) -> bool:
+        delivery_id = _safe_key(delivery_id, "delivery_id")
+        claim_token = claim_token or self._claim_tokens.get(delivery_id)
+        if claim_token is not None:
+            claim_token = _safe_key(claim_token, "claim_token")
+        reason = _safe_key(reason, "reason") if reason is not None else None
+        now = _utc_now(failed_at)
+        with self._locked():
+            current = self._latest().get(delivery_id)
+            if current is None or current.get("status") == "completed":
+                return False
+            current_token = current.get("claim_token")
+            if current_token is not None and claim_token != current_token:
+                return False
+            if current.get("status") == "failed" and current.get("last_error") == reason:
+                return True
+            self._append(
+                {
+                    "schema_version": 2,
+                    "delivery_id": delivery_id,
+                    "status": "failed",
+                    "claimed_at": current.get("claimed_at"),
+                    "failed_at": iso_utc(now),
+                    "payload_sha256": current.get("payload_sha256"),
+                    "last_error": reason,
+                    "claim_token": current_token,
+                }
+            )
             return True
 
     def contains(self, delivery_id: str) -> bool:
         delivery_id = _safe_key(delivery_id, "delivery_id")
         with self._locked():
-            return delivery_id in self._delivery_ids()
+            return delivery_id in self._latest()
+
+    def get(self, delivery_id: str) -> ReplayRecord | None:
+        """Return the latest state for observability and recovery tooling."""
+        delivery_id = _safe_key(delivery_id, "delivery_id")
+        with self._locked():
+            record = self._latest().get(delivery_id)
+            if record is None:
+                return None
+            claimed_at = datetime.fromisoformat(
+                str(record["claimed_at"]).replace("Z", "+00:00")
+            )
+            completed_at_value = record.get("completed_at")
+            completed_at = (
+                datetime.fromisoformat(str(completed_at_value).replace("Z", "+00:00"))
+                if completed_at_value is not None
+                else None
+            )
+            return ReplayRecord(
+                delivery_id=delivery_id,
+                status=str(record["status"]),
+                claimed_at=ensure_utc(claimed_at),
+                payload_sha256=(
+                    str(record["payload_sha256"])
+                    if record.get("payload_sha256") is not None
+                    else None
+                ),
+                completed_at=ensure_utc(completed_at) if completed_at is not None else None,
+                idempotency_key=(
+                    str(record["idempotency_key"])
+                    if record.get("idempotency_key") is not None
+                    else None
+                ),
+                last_error=(
+                    str(record["last_error"])
+                    if record.get("last_error") is not None
+                    else None
+                ),
+                claim_token=(
+                    str(record["claim_token"])
+                    if record.get("claim_token") is not None
+                    else None
+                ),
+            )
 
 
 @dataclass(frozen=True)
@@ -208,6 +464,17 @@ class DurableRateBudgetController:
                 raise ValueError(f"usage ledger line {line_number} has invalid reservation_key")
             if not isinstance(record.get("reason"), str) or not record["reason"].strip():
                 raise ValueError(f"usage ledger line {line_number} has invalid reason")
+            reserved_at = record.get("reserved_at")
+            try:
+                parsed = datetime.fromisoformat(str(reserved_at).replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(
+                    f"usage ledger line {line_number} has an invalid reserved_at"
+                ) from exc
+            if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
+                raise ValueError(
+                    f"usage ledger line {line_number} reserved_at must use UTC"
+                )
             records.append(record)
         return records
 
@@ -312,13 +579,21 @@ class DurableRateBudgetController:
 
 
 class AdmissionGuard:
-    """Combine verified-event authorization with an optional durable budget gate."""
+    """Combine verified authorization with a durable rate/budget reservation."""
 
     def __init__(
         self,
         policy: AuthorizationPolicy,
         rate_budget: DurableRateBudgetController | None = None,
+        *,
+        allow_unbounded: bool = False,
     ) -> None:
+        if not isinstance(allow_unbounded, bool):
+            raise ValueError("allow_unbounded must be boolean")
+        if rate_budget is None and not allow_unbounded:
+            raise ValueError(
+                "a durable rate_budget is required; set allow_unbounded=True only for offline tests"
+            )
         self.policy = policy
         self.rate_budget = rate_budget
 
@@ -333,6 +608,12 @@ class AdmissionGuard:
         return decision
 
     def authorize_event(self, event) -> AuthorizationDecision:
+        from .github_webhook import VerifiedIssueEvent
+
+        if not isinstance(event, VerifiedIssueEvent):
+            raise AdmissionAuthorizationError(
+                "admission events must be VerifiedIssueEvent instances"
+            )
         if not event.is_verified():
             raise AdmissionAuthorizationError(
                 "admission events must pass GitHub webhook verification"
@@ -347,7 +628,9 @@ class AdmissionGuard:
             self.rate_budget.reserve(
                 event.sender,
                 event.request.intake_repository_id,
-                reservation_key=event.request.idempotency_key,
+                # A delivery id is the replay unit.  The Issue idempotency key
+                # may legitimately receive distinct lifecycle events.
+                reservation_key=f"delivery:{event.delivery_id}",
             )
         return decision
 

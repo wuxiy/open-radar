@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import tempfile
+import uuid
 from typing import Iterator
 
 import yaml
@@ -15,6 +17,15 @@ from .domain import ObservationRecord, Project, ValidationError
 
 class DuplicateCollectionError(ValueError):
     """Raised when a collection slot is replayed with different data."""
+
+
+def _partition_month(recorded_at: datetime) -> str:
+    """Return the writable partition; closed or future months use current month."""
+    observed_month = recorded_at.strftime("%Y-%m")
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    if observed_month < current_month or observed_month > current_month:
+        return current_month
+    return observed_month
 
 
 def current_observations(
@@ -145,68 +156,139 @@ class ObservationStore:
             return self._append_unlocked(record)
 
     def _append_unlocked(self, record: ObservationRecord) -> bool:
+        return self._append_batch_unlocked([record]) == 1
+
+    def _append_batch_unlocked(self, records: list[ObservationRecord]) -> int:
+        """Validate the complete batch before opening any data file for append."""
         existing = self.all()
         by_event = {item.event_id: item for item in existing}
-        if record.event_id in by_event:
-            if self._same_replay(by_event[record.event_id], record):
-                return False
-            raise DuplicateCollectionError(f"event_id already exists: {record.event_id}")
+        by_collection = {
+            item.collection_key: item
+            for item in existing
+            if item.record_type == "observation"
+        }
+        existing_corrections = [
+            item
+            for item in existing
+            if item.record_type in {"correction", "invalidation"}
+        ]
+        accepted: list[ObservationRecord] = []
+        for record in sorted(records, key=lambda item: (item.recorded_at, item.event_id)):
+            current = by_event.get(record.event_id)
+            if current is not None:
+                if self._same_replay(current, record):
+                    continue
+                raise DuplicateCollectionError(f"event_id already exists: {record.event_id}")
 
-        if record.record_type == "observation":
-            matching_slots = [
-                item for item in existing if item.collection_key == record.collection_key
-            ]
-            if matching_slots:
-                if self._same_replay(matching_slots[0], record):
-                    return False
-                raise DuplicateCollectionError(
-                    f"collection_key already exists: {record.collection_key}"
+            if record.record_type == "observation":
+                current_slot = by_collection.get(record.collection_key)
+                if current_slot is not None:
+                    if self._same_replay(current_slot, record):
+                        continue
+                    raise DuplicateCollectionError(
+                        f"collection_key already exists: {record.collection_key}"
+                    )
+            elif record.supersedes not in by_event:
+                raise ValidationError(
+                    f"observation.supersedes does not exist: {record.supersedes}"
                 )
-        elif record.supersedes not in by_event:
+            elif record.supersedes == record.event_id:
+                raise ValidationError("observation corrections cannot supersede themselves")
+            else:
+                target = by_event[record.supersedes]
+                if (
+                    target.project_id != record.project_id
+                    or target.provider != record.provider
+                    or target.repository_id != record.repository_id
+                    or target.collection_key != record.collection_key
+                ):
+                    raise ValidationError(
+                        "observation correction must preserve project, repository, and collection identity"
+                    )
+                if any(
+                    item.supersedes == record.supersedes
+                    for item in existing_corrections
+                ):
+                    raise ValidationError(
+                        f"observation supersedes has an existing correction: {record.supersedes}"
+                    )
+                cursor = target
+                visited = {record.event_id}
+                while cursor.record_type in {"correction", "invalidation"} and cursor.supersedes:
+                    if cursor.event_id in visited:
+                        raise ValidationError("observation correction chain contains a cycle")
+                    visited.add(cursor.event_id)
+                    cursor = by_event.get(cursor.supersedes, cursor)
+
+            accepted.append(record)
+            by_event[record.event_id] = record
+            if record.record_type == "observation":
+                by_collection[record.collection_key] = record
+            else:
+                existing_corrections.append(record)
+
+        # All conflict and correction checks have passed.  Stage each touched
+        # partition, then replace them as a small recoverable commit.  If a
+        # later replace fails, restore every partition that was already moved.
+        grouped: dict[Path, list[bytes]] = {}
+        for record in accepted:
+            path = self.directory / f"{_partition_month(record.recorded_at)}.jsonl"
+            grouped.setdefault(path, []).append(
+                (
+                    json.dumps(
+                        record.to_dict(),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    + "\n"
+                ).encode("utf-8")
+            )
+        if len(grouped) > 1:
             raise ValidationError(
-                f"observation.supersedes does not exist: {record.supersedes}"
+                "observation batch must target one writable month partition"
             )
-        elif record.supersedes == record.event_id:
-            raise ValidationError("observation corrections cannot supersede themselves")
-        else:
-            target = by_event[record.supersedes]
-            if (
-                target.project_id != record.project_id
-                or target.provider != record.provider
-                or target.repository_id != record.repository_id
-                or target.collection_key != record.collection_key
-            ):
-                raise ValidationError(
-                    "observation correction must preserve project, repository, and collection identity"
+        originals = {
+            path: path.read_bytes() if path.exists() else None for path in grouped
+        }
+        temporary_paths: dict[Path, Path] = {}
+        replaced: list[Path] = []
+        try:
+            for path, payloads in grouped.items():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                handle = tempfile.NamedTemporaryFile(
+                    mode="wb",
+                    prefix=f".{path.name}.{uuid.uuid4().hex}.",
+                    suffix=".tmp",
+                    dir=path.parent,
+                    delete=False,
                 )
-            if any(
-                item.record_type in {"correction", "invalidation"}
-                and item.supersedes == record.supersedes
-                for item in existing
-            ):
-                raise ValidationError(
-                    f"observation supersedes has an existing correction: {record.supersedes}"
-                )
-            cursor = target
-            visited = {record.event_id}
-            while cursor.record_type in {"correction", "invalidation"} and cursor.supersedes:
-                if cursor.event_id in visited:
-                    raise ValidationError("observation correction chain contains a cycle")
-                visited.add(cursor.event_id)
-                cursor = by_event.get(cursor.supersedes, cursor)
-
-        path = self.directory / f"{record.recorded_at:%Y-%m}.jsonl"
-        with path.open("a", encoding="utf-8") as stream:
-            stream.write(
-                json.dumps(
-                    record.to_dict(),
-                    ensure_ascii=False,
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n"
-            )
-        return True
+                temporary = Path(handle.name)
+                try:
+                    if originals[path] is not None:
+                        handle.write(originals[path])
+                    for payload in payloads:
+                        handle.write(payload)
+                finally:
+                    handle.close()
+                temporary_paths[path] = temporary
+            for path, temporary in temporary_paths.items():
+                temporary.replace(path)
+                replaced.append(path)
+        except Exception:
+            for path in reversed(replaced):
+                original = originals[path]
+                if original is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    restore = path.with_name(f".{path.name}.{uuid.uuid4().hex}.restore")
+                    restore.write_bytes(original)
+                    restore.replace(path)
+            raise
+        finally:
+            for temporary in temporary_paths.values():
+                temporary.unlink(missing_ok=True)
+        return len(accepted)
 
     @staticmethod
     def _same_replay(left: ObservationRecord, right: ObservationRecord) -> bool:
@@ -219,10 +301,7 @@ class ObservationStore:
 
     def append_batch(self, records: list[ObservationRecord]) -> int:
         with self._locked():
-            appended = 0
-            for record in sorted(records, key=lambda item: (item.recorded_at, item.event_id)):
-                appended += int(self._append_unlocked(record))
-            return appended
+            return self._append_batch_unlocked(records)
 
     def current_for(self, project_id: str) -> list[ObservationRecord]:
         return current_observations(self.all(), project_id)

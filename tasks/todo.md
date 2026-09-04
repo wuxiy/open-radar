@@ -160,3 +160,13 @@
 - [ ] 使用明确授权的真实 GitHub 测试仓库执行外部 Issue/PR 写入与保护规则验收。
 
 实现边界：本轮不持有 GitHub 写令牌；真实 Provider 通过窄 `AdmissionPRClient` 接口另行接入，离线测试不得伪装成远端写入已完成。
+
+## V0.1 本地阻塞修复
+
+- [x] 重放投递使用 processing/completed/failed 状态，失败与超时可恢复，完成后不可重放。
+- [x] 生产入口默认强制 durable replay、rate/budget Guard；无持久化控制仅能显式用于离线测试。
+- [x] 合并对账只接受 Provider 返回的权威 PR 与审阅后项目内容，绑定事务身份并保持合并事实不可变。
+- [x] 合并对账拒绝 bot actor，Publisher sink 必须接收基线摘要执行 CAS。
+- [x] Publisher 对已有机器文件执行基线 SHA-256 CAS 和追加前缀校验，多产物先叠加校验再生成 README。
+- [x] 观测批量先完整校验再写入，冲突不会留下批次前半段；补齐时间顺序、主仓库角色和 403 限流重试边界。
+- [ ] 真实受控仓库 E2E、分支保护、签名和远端写入仍待显式授权与环境配置。

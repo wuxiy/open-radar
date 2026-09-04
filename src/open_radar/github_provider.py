@@ -59,9 +59,14 @@ class GitHubApiClient:
                 with urlopen(request, timeout=self._timeout) as response:
                     payload = json.load(response)
             except HTTPError as exc:
-                retryable = exc.code == 429 or 500 <= exc.code < 600
+                headers = exc.headers or {}
+                rate_limited_403 = exc.code == 403 and (
+                    headers.get("X-RateLimit-Remaining") == "0"
+                    or headers.get("Retry-After") is not None
+                )
+                retryable = exc.code == 429 or rate_limited_403 or 500 <= exc.code < 600
                 if retryable and attempt < self._max_retries:
-                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
+                    retry_after = headers.get("Retry-After")
                     try:
                         delay = float(retry_after) if retry_after is not None else 0.0
                     except (TypeError, ValueError):

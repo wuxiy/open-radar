@@ -52,6 +52,7 @@ class AdmissionService:
         self.provider = provider
         self.projects = projects
         self.taxonomy = taxonomy
+        self._merge_gate_token = object()
 
     def build_candidate(
         self,
@@ -101,7 +102,13 @@ class AdmissionService:
             self.taxonomy.validate_project(candidate)
         return candidate
 
-    def admit(self, candidate: AuthorizedCandidate, *, merge_confirmed: bool = False) -> Path:
+    def admit(
+        self,
+        candidate: AuthorizedCandidate,
+        *,
+        merge_confirmed: bool = False,
+        merge_proof: object | None = None,
+    ) -> Path:
         if not isinstance(candidate, AuthorizedCandidate):
             raise AdmissionAuthorizationError(
                 "only an authorized candidate can be admitted"
@@ -110,21 +117,27 @@ class AdmissionService:
             raise AdmissionAuthorizationError(
                 f"admission request {candidate.request.request_id} is pending authorization"
             )
-        if not merge_confirmed:
+        if not merge_confirmed or merge_proof is not self._merge_gate_token:
             raise AdmissionMergeGateError(
-                "candidate must be confirmed as merged before entering the catalog"
+                "candidate must be confirmed by authoritative merge reconciliation before entering the catalog"
             )
         return self._persist(candidate.project)
 
     def _persist(self, candidate: Project) -> Path:
-        with self.projects.locked():
-            duplicate = self.projects.find_by_repository(
-                "github", candidate.repositories[0].repository_id
+        if self.taxonomy is None:
+            raise AdmissionAuthorizationError(
+                "controlled taxonomy is required before persisting a project"
             )
-            if duplicate is not None:
-                raise DuplicateRepositoryError(
-                    f"repository is already represented by project {duplicate.id}"
+        self.taxonomy.validate_project(candidate)
+        with self.projects.locked():
+            for repository in candidate.repositories:
+                duplicate = self.projects.find_by_repository(
+                    repository.provider, repository.repository_id
                 )
+                if duplicate is not None:
+                    raise DuplicateRepositoryError(
+                        f"repository is already represented by project {duplicate.id}"
+                    )
             try:
                 existing = self.projects.load(candidate.id)
             except FileNotFoundError:
@@ -138,8 +151,16 @@ class AdmissionService:
         request: AdmissionRequest,
         policy: AuthorizationPolicy,
         guard: AdmissionGuard | None = None,
+        *,
+        allow_uncontrolled: bool = False,
         **candidate_options,
     ) -> AuthorizedCandidate:
+        if not isinstance(allow_uncontrolled, bool):
+            raise ValueError("allow_uncontrolled must be boolean")
+        if guard is None and not allow_uncontrolled:
+            raise AdmissionAuthorizationError(
+                "admission guard is required for authorized candidate construction"
+            )
         decision = guard.authorize_request(request) if guard is not None else policy.require_authorized(request)
         return self._authorized_candidate(
             request,
@@ -152,9 +173,25 @@ class AdmissionService:
         event: VerifiedIssueEvent,
         policy: AuthorizationPolicy,
         guard: AdmissionGuard | None = None,
+        *,
+        allow_uncontrolled: bool = False,
         **candidate_options,
     ) -> AuthorizedCandidate:
         """Consume a verifier result without allowing event fields to be re-bound."""
+        if not isinstance(event, VerifiedIssueEvent):
+            raise AdmissionAuthorizationError(
+                "admission events must be VerifiedIssueEvent instances"
+            )
+        if not isinstance(allow_uncontrolled, bool):
+            raise ValueError("allow_uncontrolled must be boolean")
+        if not event.replay_managed and not allow_uncontrolled:
+            raise AdmissionAuthorizationError(
+                "durable replay control is required for verified admission events"
+            )
+        if guard is None and not allow_uncontrolled:
+            raise AdmissionAuthorizationError(
+                "admission guard is required for verified candidate construction"
+            )
         decision = (
             guard.authorize_event(event)
             if guard is not None

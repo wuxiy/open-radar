@@ -19,9 +19,15 @@ from .admission_request import (
     AdmissionRequest,
     AuthorizationPolicy,
 )
-from .admission_controls import AdmissionGuard, DurableRateBudgetController, RateBudgetPolicy
+from .admission_controls import (
+    AdmissionGuard,
+    DurableRateBudgetController,
+    DurableReplayStore,
+    RateBudgetExceeded,
+    RateBudgetPolicy,
+)
 from .admission_transactions import AdmissionTransactionError, AdmissionTransactionStore
-from .github_provider import GitHubApiClient, GitHubProvider
+from .github_provider import GitHubApiClient, GitHubProvider, GitHubProviderError
 from .generation import render_readme, write_readme
 from .storage import ObservationStore, ProjectStore
 from .taxonomy import Taxonomy
@@ -32,7 +38,11 @@ from .workflows.admission import (
     DuplicateRepositoryError,
     SlugCollisionError,
 )
-from .workflows.admission_pr import AdmissionWorkflow, MergeReconciliationError, MergedPullRequest
+from .workflows.admission_pr import (
+    AdmissionWorkflow,
+    MergeReconciliationError,
+    PullRequestError,
+)
 from .workflows.collection import CollectionService
 
 
@@ -171,6 +181,7 @@ def _ingest(namespace: argparse.Namespace) -> int:
                 candidate = service.build_authorized_candidate(
                     request,
                     policy,
+                    allow_uncontrolled=True,
                     **candidate_options,
                 )
         else:
@@ -192,18 +203,10 @@ def _ingest(namespace: argparse.Namespace) -> int:
                 raise ValueError(
                     "--merge-confirmed requires --merge-commit-sha and --merged-by"
                 )
-            path = workflow.reconcile_merge(
-                preparation,
-                MergedPullRequest(
-                    number=namespace.pr_number or preparation.pull_request.number,
-                    head_branch=preparation.pull_request.head_branch,
-                    merged=True,
-                    merge_commit_sha=namespace.merge_commit_sha,
-                    merged_by=namespace.merged_by,
-                ),
+            raise MergeReconciliationError(
+                "CLI cannot self-assert a merge; use reconcile_merge_from_provider with "
+                "authoritative pull-request state"
             )
-            print(path)
-            count = 1
         else:
             project = candidate.project if isinstance(candidate, AuthorizedCandidate) else candidate
             print(yaml.safe_dump(project.to_dict(), allow_unicode=True, sort_keys=False), end="")
@@ -240,6 +243,9 @@ def _ingest(namespace: argparse.Namespace) -> int:
         SlugCollisionError,
         AdmissionTransactionError,
         MergeReconciliationError,
+        PullRequestError,
+        RateBudgetExceeded,
+        GitHubProviderError,
     ) as exc:
         print(f"ingest failed: {exc}", file=sys.stderr)
         _write_manifest(
@@ -290,7 +296,7 @@ def _collect(namespace: argparse.Namespace) -> int:
         status = "partial" if errors and count else "failed" if errors else "succeeded"
         _write_manifest(root, run_id=run_id, kind="collect", started_at=started, status=status, counts={"observations_appended": count, "projects_skipped": len(service.last_skipped), "errors": len(errors)}, errors=errors)
         return 1 if errors and not count else 0
-    except (ValueError, FileNotFoundError, RuntimeError) as exc:
+    except (ValueError, FileNotFoundError, RuntimeError, GitHubProviderError) as exc:
         print(f"collect failed: {exc}", file=sys.stderr)
         _write_manifest(root, run_id=run_id, kind="collect", started_at=started, status="failed", counts={}, errors=[str(exc)])
         return 1
@@ -390,6 +396,21 @@ def _validate(namespace: argparse.Namespace) -> int:
                 validator.validate("admission-transaction.v1.json", transaction.to_dict())
         except (AdmissionTransactionError, ValueError, FileNotFoundError) as exc:
             errors.append(f"admission transaction: {exc}")
+        try:
+            DurableReplayStore(root)._records()
+        except (ValueError, OSError) as exc:
+            errors.append(f"replay ledger: {exc}")
+        try:
+            DurableRateBudgetController(
+                root,
+                RateBudgetPolicy(
+                    max_requests=_positive_env("OPEN_RADAR_ADMISSION_MAX_REQUESTS", 60),
+                    max_budget_units=_positive_env("OPEN_RADAR_ADMISSION_BUDGET_UNITS", 100),
+                    window_seconds=_positive_env("OPEN_RADAR_ADMISSION_WINDOW_SECONDS", 3600),
+                ),
+            )._records()
+        except (ValueError, OSError) as exc:
+            errors.append(f"rate/budget ledger: {exc}")
     except (ValueError, FileNotFoundError) as exc:
         errors.append(str(exc))
     if errors:

@@ -45,7 +45,7 @@ class CollectionService:
                 self.last_skipped.append(project.id)
                 continue
             try:
-                primary = next(repository for repository in project.repositories if repository.role == "primary")
+                primary = project.primary_repository
                 identity = GitHubRepositoryIdentity(owner=primary.owner, repo=primary.repo)
                 metadata = self.provider.fetch_repository(identity)
                 if metadata.repository_id != primary.repository_id:
@@ -72,4 +72,16 @@ class CollectionService:
         if not latest:
             return True
         interval_days = {"daily": 1, "weekly": 7, "monthly": 30}[project.tracking]
-        return latest[0].observed_at + timedelta(days=interval_days) <= scheduled_at
+        primary = project.primary_repository
+        primary_latest = next(
+            (
+                record
+                for record in latest
+                if record.provider == primary.provider
+                and record.repository_id == primary.repository_id
+            ),
+            None,
+        )
+        if primary_latest is None:
+            return True
+        return primary_latest.observed_at + timedelta(days=interval_days) <= scheduled_at

@@ -39,7 +39,16 @@ def render_readme(
     rows = []
     for project in project_list:
         current = current_by_project.get(project.id, [])
-        latest = current[0] if current else None
+        primary = project.primary_repository
+        latest = next(
+            (
+                record
+                for record in current
+                if record.provider == primary.provider
+                and record.repository_id == primary.repository_id
+            ),
+            None,
+        )
         stars = latest.metrics.get("stars", "N/A") if latest else "N/A"
         observed = latest.observed_at.isoformat().replace("+00:00", "Z") if latest else "N/A"
         rows.append(

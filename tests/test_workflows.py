@@ -18,7 +18,6 @@ from open_radar.generation import render_readme
 from open_radar.storage import ObservationStore, ProjectStore
 from open_radar.workflows.admission import (
     AdmissionMergeGateError,
-    DuplicateRepositoryError,
     AdmissionService,
 )
 from open_radar.workflows.collection import CollectionService
@@ -115,6 +114,7 @@ class WorkflowTests(unittest.TestCase):
             authorized = service.build_authorized_candidate(
                 request,
                 AuthorizationPolicy(trusted_users={"maintainer"}),
+                allow_uncontrolled=True,
             )
             event_payload = {
                 "action": "opened",
@@ -134,7 +134,8 @@ class WorkflowTests(unittest.TestCase):
             ).hexdigest()
             verified_event_candidate = service.build_verified_event_candidate(
                 GitHubWebhookVerifier(
-                    b"test-secret", expected_repository_id=987654321
+                    b"test-secret", expected_repository_id=987654321,
+                    allow_untracked_replay=True,
                 ).verify_issue_event(
                     event_body,
                     event_signature,
@@ -142,6 +143,7 @@ class WorkflowTests(unittest.TestCase):
                     delivery_id="delivery-42",
                 ),
                 AuthorizationPolicy(trusted_users={"maintainer"}),
+                allow_uncontrolled=True,
             )
             self.assertEqual(verified_event_candidate.project.id, "radar-demo")
             with self.assertRaises(AdmissionAuthorizationError):
@@ -156,12 +158,33 @@ class WorkflowTests(unittest.TestCase):
                         _snapshot=(),
                     ),
                     AuthorizationPolicy(trusted_users={"maintainer"}),
+                    allow_uncontrolled=True,
                 )
             with self.assertRaises(AdmissionMergeGateError):
                 service.admit(authorized)
-            service.admit(authorized, merge_confirmed=True)
-            with self.assertRaises(DuplicateRepositoryError):
+            with self.assertRaises(AdmissionMergeGateError):
                 service.admit(authorized, merge_confirmed=True)
+
+    def test_verified_candidate_rejects_duck_typed_event(self):
+        class ForgedEvent:
+            request = None
+            sender = "maintainer"
+            action = "opened"
+            label_name = None
+            replay_managed = True
+
+            def is_verified(self):
+                return True
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = AdmissionService(GitHubProvider(FakeClient()), ProjectStore(root))
+            with self.assertRaises(AdmissionAuthorizationError):
+                service.build_verified_event_candidate(
+                    ForgedEvent(),
+                    AuthorizationPolicy(trusted_users={"maintainer"}),
+                    allow_uncontrolled=True,
+                )
 
     def test_collection_is_idempotent_and_skips_tracking_off(self):
         with TemporaryDirectory() as directory:

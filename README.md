@@ -30,7 +30,7 @@ open-radar ingest \
   --discovered-at 2026-09-03T00:00:00Z
 ```
 
-Add `--write` only after an authorized request has passed review. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities.
+Add `--write` only for an authorized request when you want the local transaction/PR plan recorded. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities. It deliberately fails closed before writing project YAML because a CLI flag cannot establish authoritative merge facts.
 
 ```bash
 export OPEN_RADAR_TRUSTED_USERS=maintainer
@@ -41,21 +41,18 @@ open-radar ingest \
   --request-id issue-42 \
   --requester maintainer \
   --intake-repository-id 987654321 \
-  --issue-number 42 \
-  --merge-confirmed \
-  --merge-commit-sha <observed-merge-sha> \
-  --merged-by maintainer
+  --issue-number 42
 ```
 
-The local CLI reads trusted users from the protected `OPEN_RADAR_TRUSTED_USERS` environment variable and applies durable rate/budget defaults (override with `OPEN_RADAR_ADMISSION_MAX_REQUESTS`, `OPEN_RADAR_ADMISSION_BUDGET_UNITS`, and `OPEN_RADAR_ADMISSION_WINDOW_SECONDS`). Request comments are untrusted context. Label authorization is available to the webhook payload adapter, not as a free-form CLI switch. `--merge-confirmed` now reconciles the prepared transaction with the supplied observed merge SHA and merger; the CLI remains a local/admin path and does not claim to query GitHub itself.
+The local CLI reads trusted users from the protected `OPEN_RADAR_TRUSTED_USERS` environment variable and applies durable rate/budget defaults (override with `OPEN_RADAR_ADMISSION_MAX_REQUESTS`, `OPEN_RADAR_ADMISSION_BUDGET_UNITS`, and `OPEN_RADAR_ADMISSION_WINDOW_SECONDS`). Request comments are untrusted context. Label authorization is available to the webhook payload adapter, not as a free-form CLI switch. Merge reconciliation must use `AdmissionWorkflow.reconcile_merge_from_provider()` with a read-only provider that returns the recorded PR number, branch, merge SHA, human merger, and the reviewed project content; the CLI never self-asserts those facts.
 
 The Issue boundary is exposed as `GitHubWebhookVerifier` in [`src/open_radar/github_webhook.py`](src/open_radar/github_webhook.py). Configure it with the intake repository's numeric GitHub ID. It requires the raw request body, the `X-Hub-Signature-256` value, and an `issues` event; it rejects invalid signatures, cross-repository events, unsupported actions, and malformed Issue forms before creating an `AdmissionRequest`. Keep `OPEN_RADAR_WEBHOOK_SECRET` in the webhook worker's protected configuration. No webhook server or GitHub write operation is included in this local core.
 
-For authorization, hand the verifier result to `AdmissionService.build_verified_event_candidate`; it carries the verified `sender`, `action`, and `label_name` into the policy without allowing callers to re-bind those fields. A labeled event is accepted only when the verified sender is trusted and the changed label is `approved-for-processing`. Pass `DurableReplayStore(root)` to the verifier to persist delivery claims in `data/runs/webhook-deliveries.jsonl`; a replay raises `WebhookReplayError` before a candidate is built.
+For authorization, hand the verifier result to `AdmissionService.build_verified_event_candidate`; it carries the verified `sender`, `action`, and `label_name` into the policy without allowing callers to re-bind those fields. A labeled event is accepted only when the verified sender is trusted and the changed label is `approved-for-processing`. The verifier requires `DurableReplayStore(root)` (or another durable adapter) and persists delivery state in `data/runs/webhook-deliveries.jsonl`; `allow_untracked_replay=True` is reserved for isolated signature tests. Claims move from `processing` to `completed` only after the admission transaction/PR side effect is durable; failed or stale processing claims can be retried, while a completed replay raises `WebhookReplayError`.
 
-Use `DurableRateBudgetController` and `AdmissionGuard` to enforce a per-actor, per-intake-repository window. Accepted reservations are durable and keyed by the Issue idempotency key, so a retry does not spend the budget twice. Denials are retained with a reason in `data/runs/admission-usage.jsonl`.
+Use `DurableRateBudgetController` and `AdmissionGuard` to enforce a per-actor, per-intake-repository window; constructing a Guard without its durable controller is rejected unless an offline test explicitly opts into `allow_unbounded=True`. Accepted webhook reservations are durable and keyed by delivery ID, so only an actual replay is idempotent while distinct Issue lifecycle events still consume budget. Denials are retained with a reason in `data/runs/admission-usage.jsonl`.
 
-`AdmissionWorkflow.prepare()` turns a verified event into one durable transaction (`data/runs/admission-transactions/YYYY-MM.jsonl`), a deterministic `admission/...` branch, and a `PullRequestPlan` containing only the candidate project file. The journal records `pr_creating` before the provider call, and the `AdmissionPRClient` contract requires `find_by_branch` plus branch-keyed upsert, so a crash can recover a side effect without creating a second PR. `DeterministicAdmissionPRClient` is intentionally offline and produces a stable PR reference; a live GitHub client must implement the narrow protocol under separately authorized credentials. Use `reconcile_merge_from_provider()` with a read-only state adapter to verify the actual merged PR; it requires the recorded PR number/branch, a merge SHA, and a human merger identity before calling the project persistence gate. Repeated merge reconciliation is idempotent.
+`AdmissionWorkflow.prepare()` turns a verified event into one durable transaction (`data/runs/admission-transactions/YYYY-MM.jsonl`), a deterministic `admission/...` branch, and a `PullRequestPlan` containing only the candidate project file. The workflow requires both a durable replay store on the event and an `AdmissionGuard`; uncontrolled mode is available only when explicitly enabled by offline tests. The journal records `pr_creating` before the provider call, and the `AdmissionPRClient` contract requires `find_by_branch` plus branch-keyed upsert, so a crash can recover a side effect without creating a second PR. `DeterministicAdmissionPRClient` is intentionally offline and produces a stable PR reference; a live GitHub client must implement the narrow protocol under separately authorized credentials. Use `reconcile_merge_from_provider()` with a read-only state adapter to verify the actual merged PR; it requires the recorded PR number/branch, a merge SHA, a non-bot human merger identity, and the reviewed project content before calling the project persistence gate. Repeated merge reconciliation is idempotent.
 
 Collect due projects. The client sends read-only requests to the GitHub API. Set `GITHUB_TOKEN` for authenticated rate limits, or pass `--token` directly.
 
@@ -104,7 +101,9 @@ Project state uses three independent fields:
 
 Machine-owned metrics do not belong in project YAML. Corrections append a new record with `supersedes` and `correction_reason`; existing history is not rewritten.
 
-Observation publishing is constrained by `ObservationOnlyPublisher`. Its allowlist accepts monthly GitHub observation JSONL, compact run JSONL, and a README carrying the trusted generator marker. It validates domain/schema fields, records a SHA-256 content digest, and rejects project, taxonomy, schema, workflow, traversal, symlink, duplicate-path, malformed-JSONL, and oversized artifacts. The publisher creates a plan or sends it to a narrow sink; it never interprets external text or executes commands. Source signatures and protected-branch enforcement remain deployment-specific checks for the live adapter.
+Observation publishing is constrained by `ObservationOnlyPublisher`. Its allowlist accepts monthly GitHub observation JSONL, compact run JSONL, and a generated README. Existing machine files require a per-artifact baseline SHA-256 and byte-for-byte append semantics; the plan also carries a stable idempotency key and baseline state digest for a sink-side CAS check. A `PublisherSink` must receive that digest and return a matching `PublisherCommitResult`; a legacy or CAS-rejecting sink fails closed. Historical month partitions are closed: late or future-dated observations are routed to the current writable month while retaining their original timestamps. Multiple artifacts are validated as one overlay before the README is regenerated, so a stale README or cross-file duplicate cannot pass. The publisher rejects project, taxonomy, schema, workflow, traversal, symlink, duplicate-path, malformed-JSONL, and oversized artifacts. It never interprets external text or executes commands. Source signatures and protected-branch enforcement remain deployment-specific checks for the live adapter.
+
+Observation batches are validated in memory and committed through a staged atomic replacement of one writable month partition; a batch spanning multiple partitions is rejected before any write.
 
 ## Test
 

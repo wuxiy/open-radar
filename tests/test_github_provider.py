@@ -166,6 +166,37 @@ class GitHubProviderTests(unittest.TestCase):
         self.assertEqual(request.call_count, 2)
         sleep.assert_called_once()
 
+    def test_api_client_retries_rate_limited_403(self):
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return b'{"id": 100000001}'
+
+        transient = HTTPError(
+            "https://api.github.com",
+            403,
+            "rate limit",
+            {"X-RateLimit-Remaining": "0", "Retry-After": "1"},
+            None,
+        )
+        with patch(
+            "open_radar.github_provider.urlopen",
+            side_effect=[transient, Response()],
+        ) as request, patch("open_radar.github_provider.time.sleep") as sleep:
+            from open_radar.github_provider import GitHubApiClient
+
+            payload = GitHubApiClient(max_retries=1, backoff_seconds=0.01).get_repository(
+                "example-org", "radar-demo"
+            )
+        self.assertEqual(payload["id"], 100000001)
+        self.assertEqual(request.call_count, 2)
+        sleep.assert_called_once()
+
     def test_api_client_does_not_retry_not_found(self):
         not_found = HTTPError("https://api.github.com", 404, "not found", {}, None)
         with patch("open_radar.github_provider.urlopen", side_effect=not_found) as request:
