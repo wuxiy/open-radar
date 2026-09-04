@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import uuid
 
@@ -18,6 +19,8 @@ from .admission_request import (
     AdmissionRequest,
     AuthorizationPolicy,
 )
+from .admission_controls import AdmissionGuard, DurableRateBudgetController, RateBudgetPolicy
+from .admission_transactions import AdmissionTransactionError, AdmissionTransactionStore
 from .github_provider import GitHubApiClient, GitHubProvider
 from .generation import render_readme, write_readme
 from .storage import ObservationStore, ProjectStore
@@ -29,6 +32,7 @@ from .workflows.admission import (
     DuplicateRepositoryError,
     SlugCollisionError,
 )
+from .workflows.admission_pr import AdmissionWorkflow, MergeReconciliationError, MergedPullRequest
 from .workflows.collection import CollectionService
 
 
@@ -45,6 +49,19 @@ def _now() -> datetime:
 
 def _run_id() -> str:
     return f"run-{uuid.uuid4().hex[:16]}"
+
+
+def _positive_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
 
 
 def _write_manifest(
@@ -129,11 +146,33 @@ def _ingest(namespace: argparse.Namespace) -> int:
                 for user in os.environ.get("OPEN_RADAR_TRUSTED_USERS", "").split(",")
                 if user.strip()
             }
-            candidate = service.build_authorized_candidate(
-                request,
-                AuthorizationPolicy(trusted_users=trusted_users),
-                **candidate_options,
-            )
+            policy = AuthorizationPolicy(trusted_users=trusted_users)
+            if namespace.write:
+                rate_budget = DurableRateBudgetController(
+                    root,
+                    RateBudgetPolicy(
+                        max_requests=_positive_env("OPEN_RADAR_ADMISSION_MAX_REQUESTS", 60),
+                        max_budget_units=_positive_env("OPEN_RADAR_ADMISSION_BUDGET_UNITS", 100),
+                        window_seconds=_positive_env("OPEN_RADAR_ADMISSION_WINDOW_SECONDS", 3600),
+                    ),
+                )
+                workflow = AdmissionWorkflow(
+                    service,
+                    policy,
+                    AdmissionTransactionStore(root),
+                    guard=AdmissionGuard(policy, rate_budget),
+                )
+                preparation = workflow.prepare_request(
+                    request,
+                    candidate_options=candidate_options,
+                )
+                candidate = preparation.candidate
+            else:
+                candidate = service.build_authorized_candidate(
+                    request,
+                    policy,
+                    **candidate_options,
+                )
         else:
             candidate = service.build_candidate(
                 namespace.url,
@@ -145,7 +184,24 @@ def _ingest(namespace: argparse.Namespace) -> int:
                 raise AdmissionAuthorizationError(
                     "only an authorized request can be written"
                 )
-            path = service.admit(candidate, merge_confirmed=namespace.merge_confirmed)
+            if not namespace.merge_confirmed:
+                raise AdmissionMergeGateError(
+                    "admission PR is prepared; pass --merge-confirmed after human review"
+                )
+            if not namespace.merge_commit_sha or not namespace.merged_by:
+                raise ValueError(
+                    "--merge-confirmed requires --merge-commit-sha and --merged-by"
+                )
+            path = workflow.reconcile_merge(
+                preparation,
+                MergedPullRequest(
+                    number=namespace.pr_number or preparation.pull_request.number,
+                    head_branch=preparation.pull_request.head_branch,
+                    merged=True,
+                    merge_commit_sha=namespace.merge_commit_sha,
+                    merged_by=namespace.merged_by,
+                ),
+            )
             print(path)
             count = 1
         else:
@@ -182,6 +238,8 @@ def _ingest(namespace: argparse.Namespace) -> int:
         FileNotFoundError,
         DuplicateRepositoryError,
         SlugCollisionError,
+        AdmissionTransactionError,
+        MergeReconciliationError,
     ) as exc:
         print(f"ingest failed: {exc}", file=sys.stderr)
         _write_manifest(
@@ -313,6 +371,8 @@ def _validate(namespace: argparse.Namespace) -> int:
                 errors.append(f"observation {observation.event_id}: {exc}")
         seen_run_ids: set[str] = set()
         for manifest_path in sorted((root / "data" / "runs").glob("*.jsonl")):
+            if re.fullmatch(r"(?:19|20)[0-9]{2}-(?:0[1-9]|1[0-2])\.jsonl", manifest_path.name) is None:
+                continue
             for line_number, line in enumerate(manifest_path.read_text(encoding="utf-8").splitlines(), start=1):
                 if not line.strip():
                     continue
@@ -324,6 +384,12 @@ def _validate(namespace: argparse.Namespace) -> int:
                     seen_run_ids.add(manifest["run_id"])
                 except (ValueError, json.JSONDecodeError) as exc:
                     errors.append(f"run manifest {manifest_path}:{line_number}: {exc}")
+        try:
+            transaction_store = AdmissionTransactionStore(root)
+            for transaction in transaction_store.all():
+                validator.validate("admission-transaction.v1.json", transaction.to_dict())
+        except (AdmissionTransactionError, ValueError, FileNotFoundError) as exc:
+            errors.append(f"admission transaction: {exc}")
     except (ValueError, FileNotFoundError) as exc:
         errors.append(str(exc))
     if errors:
@@ -358,6 +424,9 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--intake-repository-id")
     ingest.add_argument("--issue-number", type=int)
     ingest.add_argument("--merge-confirmed", action="store_true")
+    ingest.add_argument("--pr-number", type=int)
+    ingest.add_argument("--merge-commit-sha")
+    ingest.add_argument("--merged-by")
     ingest.add_argument("--source-url")
     ingest.add_argument("--comment")
     ingest.set_defaults(handler=_ingest)

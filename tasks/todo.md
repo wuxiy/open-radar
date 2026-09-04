@@ -153,6 +153,10 @@
 - [x] 为 GitHub API 增加限流、5xx 和暂态网络错误的有界重试。
 - [x] 固化 AdmissionRequest Schema、授权策略和 Issue 表单边界。
 - [x] 增加 GitHub Issue Webhook 的 HMAC 验签和安全 payload 适配器。
-- [ ] 接入 Issue 授权、收录 PR 和人工合并门槛。
-- [ ] 接入 observation-only 发布通道、路径检查和 Publisher 权限隔离。
-- [ ] 在受控测试仓库完成端到端验收并记录证据。
+- [x] 接入 Issue 授权、收录事务、确定性 PR 计划和人工合并对账门槛。
+- [x] 接入持久化 webhook 重放去重、按用户/仓库限速和预算控制。
+- [x] 接入 observation-only 发布通道、路径检查和 Publisher 权限隔离。
+- [x] 在固定 Fixture 和临时 Git 仓库组成的受控离线环境完成端到端验收并记录测试证据。
+- [ ] 使用明确授权的真实 GitHub 测试仓库执行外部 Issue/PR 写入与保护规则验收。
+
+实现边界：本轮不持有 GitHub 写令牌；真实 Provider 通过窄 `AdmissionPRClient` 接口另行接入，离线测试不得伪装成远端写入已完成。

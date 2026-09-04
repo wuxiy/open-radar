@@ -14,6 +14,9 @@ from open_radar.cli import main
 from open_radar.domain import ObservationRecord, Project
 from open_radar.github_provider import GitHubProvider
 from open_radar.storage import ObservationStore, ProjectStore
+from open_radar.admission_controls import DurableRateBudgetController, DurableReplayStore, RateBudgetPolicy
+from open_radar.admission_transactions import AdmissionTransaction, AdmissionTransactionStore
+from datetime import datetime, timezone
 
 ROOT = Path(__file__).parents[1]
 
@@ -99,6 +102,10 @@ class CliTests(unittest.TestCase):
                             "--issue-number",
                             "42",
                             "--merge-confirmed",
+                            "--merge-commit-sha",
+                            "cli-merge-1",
+                            "--merged-by",
+                            "maintainer",
                             "--discovered-at",
                             "2026-09-04T00:00:00Z",
                         ]
@@ -208,6 +215,35 @@ class CliTests(unittest.TestCase):
             )
             ObservationStore(root).append(record)
             self.assertEqual(main(["validate", "--root", directory]), 1)
+
+    def test_validate_handles_control_ledgers_and_admission_transactions(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "data" / "taxonomy", root / "data" / "taxonomy")
+            shutil.copytree(ROOT / "schemas", root / "schemas")
+            DurableReplayStore(root).claim("delivery-1")
+            DurableRateBudgetController(root, RateBudgetPolicy(2, 2)).reserve("alice", "9", reservation_key="issue-1")
+            now = datetime(2026, 9, 4, tzinfo=timezone.utc)
+            AdmissionTransactionStore(root).ensure(
+                AdmissionTransaction(
+                    schema_version=1,
+                    idempotency_key="github:9:issue-1",
+                    request_id="issue-1",
+                    intake_repository_id="9",
+                    issue_number=1,
+                    project_id="radar-demo",
+                    repository_id=100000001,
+                    project_url="https://github.com/example-org/radar-demo",
+                    requester="alice",
+                    branch_name="admission/github-9-issue-1",
+                    status="pr_open",
+                    created_at=now,
+                    updated_at=now,
+                    pr_number=10001,
+                    pr_url="https://github.com/open-radar/admissions/pull/10001",
+                )
+            )
+            self.assertEqual(main(["validate", "--root", directory]), 0)
 
 
 if __name__ == "__main__":

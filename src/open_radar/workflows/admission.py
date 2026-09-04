@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from ..domain import Project, iso_utc
+from ..admission_controls import AdmissionGuard
 from ..github_provider import GitHubProvider
 from ..github_webhook import VerifiedIssueEvent
 from ..identity import project_slug
@@ -136,9 +137,10 @@ class AdmissionService:
         self,
         request: AdmissionRequest,
         policy: AuthorizationPolicy,
+        guard: AdmissionGuard | None = None,
         **candidate_options,
     ) -> AuthorizedCandidate:
-        decision = policy.require_authorized(request)
+        decision = guard.authorize_request(request) if guard is not None else policy.require_authorized(request)
         return self._authorized_candidate(
             request,
             decision,
@@ -149,18 +151,14 @@ class AdmissionService:
         self,
         event: VerifiedIssueEvent,
         policy: AuthorizationPolicy,
+        guard: AdmissionGuard | None = None,
         **candidate_options,
     ) -> AuthorizedCandidate:
         """Consume a verifier result without allowing event fields to be re-bound."""
-        if not event.is_verified():
-            raise AdmissionAuthorizationError(
-                "admission events must pass GitHub webhook verification"
-            )
-        decision = policy.require_authorized_event(
-            event.request,
-            actor=event.sender,
-            action=event.action,
-            label=event.label_name,
+        decision = (
+            guard.authorize_event(event)
+            if guard is not None
+            else self._authorize_verified_event(event, policy)
         )
         return self._authorized_candidate(
             event.request,
@@ -182,4 +180,20 @@ class AdmissionService:
             ),
             request=request,
             decision=authorization,
+        )
+
+    @staticmethod
+    def _authorize_verified_event(
+        event: VerifiedIssueEvent,
+        policy: AuthorizationPolicy,
+    ) -> AuthorizationDecision:
+        if not event.is_verified():
+            raise AdmissionAuthorizationError(
+                "admission events must pass GitHub webhook verification"
+            )
+        return policy.require_authorized_event(
+            event.request,
+            actor=event.sender,
+            action=event.action,
+            label=event.label_name,
         )

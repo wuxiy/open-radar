@@ -5,6 +5,8 @@ from open_radar.contracts.schema import SchemaValidator
 from open_radar.admission_request import AdmissionRequest
 from open_radar.domain import Project, ValidationError
 from open_radar.taxonomy import Taxonomy
+from open_radar.admission_transactions import AdmissionTransaction
+from datetime import datetime, timezone
 
 
 ROOT = Path(__file__).parents[1]
@@ -80,6 +82,24 @@ class SchemaTests(unittest.TestCase):
             }
         )
         validator.validate("admission-request.v1.json", request.to_dict())
+        transaction = AdmissionTransaction(
+            schema_version=1,
+            idempotency_key="github:987654321:issue-42",
+            request_id="issue-42",
+            intake_repository_id="987654321",
+            issue_number=42,
+            project_id="radar-demo",
+            repository_id=100000001,
+            project_url="https://github.com/example-org/radar-demo",
+            requester="contributor",
+            branch_name="admission/github-987654321-issue-42",
+            status="pr_open",
+            created_at=datetime(2026, 9, 4, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 9, 4, tzinfo=timezone.utc),
+            pr_number=10001,
+            pr_url="https://github.com/open-radar/admissions/pull/10001",
+        )
+        validator.validate("admission-transaction.v1.json", transaction.to_dict())
 
     def test_unknown_fields_are_rejected(self):
         validator = SchemaValidator(ROOT)

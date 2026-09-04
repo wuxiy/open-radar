@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/admission-transaction.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "idempotency_key", "request_id", "intake_repository_id",
+    "issue_number", "project_id", "repository_id", "project_url", "requester", "branch_name", "status",
+    "created_at", "updated_at", "pr_number", "pr_url", "merge_commit_sha",
+    "merged_by", "last_error"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "idempotency_key": {"type": "string", "minLength": 1},
+    "request_id": {"type": "string", "minLength": 1},
+    "intake_repository_id": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "issue_number": {"type": "integer", "minimum": 1},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "repository_id": {"type": "integer", "minimum": 1},
+    "project_url": {"type": "string", "pattern": "^https://github\\.com/[^/\\s]+/[^/\\s]+$"},
+    "requester": {"type": "string", "minLength": 1},
+    "branch_name": {"type": "string", "pattern": "^admission/[a-zA-Z0-9._/-]+$"},
+    "status": {"enum": ["pending", "authorized", "pr_creating", "pr_open", "merged", "admitted", "rejected", "failed"]},
+    "created_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "updated_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "pr_number": {"type": ["integer", "null"], "minimum": 1},
+    "pr_url": {"type": ["string", "null"], "minLength": 1},
+    "merge_commit_sha": {"type": ["string", "null"], "minLength": 1},
+    "merged_by": {"type": ["string", "null"], "minLength": 1},
+    "last_error": {"type": ["string", "null"], "minLength": 1}
+  }
+}

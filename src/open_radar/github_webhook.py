@@ -11,6 +11,7 @@ import weakref
 from typing import Literal, Mapping
 
 from .admission_request import AdmissionRequest
+from .admission_controls import ReplayStore
 
 
 IssueAction = Literal["opened", "reopened", "labeled", "edited"]
@@ -19,6 +20,10 @@ _SUPPORTED_ACTIONS: frozenset[str] = frozenset({"opened", "reopened", "labeled",
 
 class WebhookVerificationError(ValueError):
     """Raised when a webhook envelope cannot be trusted or parsed."""
+
+
+class WebhookReplayError(WebhookVerificationError):
+    """Raised when a verified delivery id has already been consumed."""
 
 
 @dataclass(frozen=True)
@@ -49,6 +54,7 @@ class GitHubWebhookVerifier:
         *,
         expected_repository_id: int,
         max_body_bytes: int = 1_048_576,
+        replay_store: ReplayStore | None = None,
     ) -> None:
         if isinstance(secret, str):
             secret = secret.encode("utf-8")
@@ -61,6 +67,7 @@ class GitHubWebhookVerifier:
         self._secret = secret
         self._expected_repository_id = expected_repository_id
         self._max_body_bytes = max_body_bytes
+        self._replay_store = replay_store
         self._verified_events: dict[int, weakref.ReferenceType[VerifiedIssueEvent]] = {}
 
     def _register(self, event: VerifiedIssueEvent) -> None:
@@ -115,19 +122,26 @@ class GitHubWebhookVerifier:
             request = AdmissionRequest.from_github_issue(payload)
         except ValueError as exc:
             raise WebhookVerificationError("invalid GitHub Issue payload") from exc
+        normalized_delivery_id = delivery_id.strip()
+        if self._replay_store is not None and not self._replay_store.claim(
+            normalized_delivery_id
+        ):
+            raise WebhookReplayError(
+                f"GitHub webhook delivery has already been consumed: {normalized_delivery_id}"
+            )
         event = VerifiedIssueEvent(
             request=request,
             action=action,
             sender=sender_login.strip(),
             label_name=label_name.strip() if isinstance(label_name, str) else None,
-            delivery_id=delivery_id.strip(),
+            delivery_id=normalized_delivery_id,
             _verifier=self,
             _snapshot=(
                 request,
                 action,
                 sender_login.strip(),
                 label_name.strip() if isinstance(label_name, str) else None,
-                delivery_id.strip(),
+                normalized_delivery_id,
             ),
         )
         self._register(event)
