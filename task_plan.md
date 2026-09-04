@@ -29,3 +29,13 @@
 ## Status
 
 **Complete** - local blocker fixes, documentation, tests, and dual-axis review are complete; real remote E2E remains explicitly out of scope.
+
+## V0.2 Change Intelligence
+
+- [x] 冻结 `change-event.v1.json`，绑定前后观测证据、规则版本和稳定指纹。
+- [x] 实现确定性字段比较、未知值跳过和活动指标显著性阈值。
+- [x] 实现指纹幂等的变更事件账本、批量预校验和 `detect-changes` CLI。
+- [x] 接入 Publisher/validate 的 Schema 与项目仓库引用检查。
+- [ ] Provider `fetch_changes`、分析提案、研究证据、评分/上下文和报告仍待后续迭代。
+
+**V0.2 首个切片完成** - 事件检测与持久化已在离线环境验证；本轮不生成 LLM 分析提案，也不执行远程写入。

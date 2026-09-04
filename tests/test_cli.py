@@ -16,6 +16,7 @@ from open_radar.github_provider import GitHubProvider
 from open_radar.storage import ObservationStore, ProjectStore
 from open_radar.admission_controls import DurableRateBudgetController, DurableReplayStore, RateBudgetPolicy
 from open_radar.admission_transactions import AdmissionTransaction, AdmissionTransactionStore
+from open_radar.change_detection import ChangeEventStore
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).parents[1]
@@ -243,6 +244,76 @@ class CliTests(unittest.TestCase):
                     pr_url="https://github.com/open-radar/admissions/pull/10001",
                 )
             )
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+
+    def test_detect_changes_is_idempotent_and_records_manifest(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "data" / "taxonomy", root / "data" / "taxonomy")
+            shutil.copytree(ROOT / "schemas", root / "schemas")
+            ProjectStore(root).save(
+                Project.from_dict(
+                    {
+                        "schema_version": 1,
+                        "id": "radar-demo",
+                        "display_name": "Radar Demo",
+                        "aliases": [],
+                        "repositories": [
+                            {
+                                "provider": "github",
+                                "repository_id": 100000001,
+                                "owner": "example",
+                                "repo": "radar-demo",
+                                "role": "primary",
+                            }
+                        ],
+                        "primary_category": "automation",
+                        "tags": ["automation"],
+                        "discovery_sources": [],
+                        "research_stage": "watching",
+                        "decision": "undecided",
+                        "tracking": "weekly",
+                        "personal_notes": "",
+                    }
+                )
+            )
+            observed = []
+            for event_id, observed_at, archived in (
+                ("obs-1", "2026-09-01T00:00:00Z", False),
+                ("obs-2", "2026-09-02T00:00:00Z", True),
+            ):
+                observed.append(
+                    ObservationRecord.from_dict(
+                        {
+                            "schema_version": 1,
+                            "record_type": "observation",
+                            "event_id": event_id,
+                            "collection_key": f"slot-{event_id}",
+                            "run_id": f"run-{event_id}",
+                            "project_id": "radar-demo",
+                            "provider": "github",
+                            "repository_id": 100000001,
+                            "scheduled_at": observed_at,
+                            "observed_at": observed_at,
+                            "recorded_at": observed_at,
+                            "collector_version": "collector-v1",
+                            "source": "fixture",
+                            "metrics": {"stars": 100},
+                            "facts": {"archived": archived, "license_spdx": "MIT"},
+                            "unavailable": {},
+                        }
+                    )
+                )
+            ObservationStore(root).append_batch(observed)
+
+            self.assertEqual(main(["detect-changes", "--root", directory]), 0)
+            self.assertEqual(main(["detect-changes", "--root", directory]), 0)
+            self.assertEqual(len(ChangeEventStore(root).all()), 1)
+            manifests = list((root / "data" / "runs").glob("*.jsonl"))
+            self.assertEqual(len(manifests), 1)
+            entries = [json.loads(line) for line in manifests[0].read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(entries[-1]["kind"], "detect-changes")
+            self.assertEqual(entries[-1]["counts"]["events_appended"], 0)
             self.assertEqual(main(["validate", "--root", directory]), 0)
 
 

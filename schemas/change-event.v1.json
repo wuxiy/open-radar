@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/change-event.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "change_id", "fingerprint", "project_id", "provider",
+    "repository_id", "before_event_id", "after_event_id", "before_observed_at",
+    "after_observed_at", "detected_at", "change_type", "field", "severity",
+    "before", "after", "rule_version"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "change_id": {"type": "string", "pattern": "^change-[0-9a-f]{24}$"},
+    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "provider": {"type": "string", "minLength": 1},
+    "repository_id": {"type": "integer", "exclusiveMinimum": 0},
+    "before_event_id": {"type": "string", "minLength": 1},
+    "after_event_id": {"type": "string", "minLength": 1},
+    "before_observed_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "after_observed_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "detected_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "change_type": {"enum": ["archive", "license", "activity", "fact"]},
+    "field": {"type": "string", "pattern": "^(?:facts|metrics)\\.[a-z][a-z0-9_]*$"},
+    "severity": {"enum": ["low", "medium", "high"]},
+    "before": {},
+    "after": {},
+    "rule_version": {"type": "string", "minLength": 1}
+  }
+}

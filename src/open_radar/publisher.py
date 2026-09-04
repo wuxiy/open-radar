@@ -14,21 +14,14 @@ from typing import Literal, Protocol
 from jsonschema.exceptions import ValidationError as JsonSchemaValidationError
 
 from .contracts.schema import SchemaValidator
-from .domain import ObservationRecord, ValidationError
+from .change_detection import ChangeEvent, ChangeEventStore
+from .domain import ObservationRecord, ValidationError, writable_month
 from .generation import render_readme
 from .storage import ObservationStore, ProjectStore
 
 
-ArtifactKind = Literal["observation", "run", "readme"]
+ArtifactKind = Literal["observation", "change_event", "run", "readme"]
 _MONTH_FILE = re.compile(r"^(?:19|20)[0-9]{2}-(0[1-9]|1[0-2])\.jsonl$")
-
-
-def _partition_month(recorded_at: datetime) -> str:
-    observed_month = recorded_at.strftime("%Y-%m")
-    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-    if observed_month < current_month or observed_month > current_month:
-        return current_month
-    return observed_month
 
 
 class PublisherIsolationError(PermissionError):
@@ -213,6 +206,11 @@ class ObservationOnlyPublisher:
                 raise PublisherIsolationError("observation publisher can only write github monthly logs")
             if _MONTH_FILE.fullmatch(path.name) is None:
                 raise PublisherIsolationError("observation publisher requires a YYYY-MM.jsonl file")
+        elif kind == "change_event":
+            if len(path.parts) != 3 or path.parts[:2] != ("data", "change-events"):
+                raise PublisherIsolationError("change-event publisher can only write monthly event logs")
+            if _MONTH_FILE.fullmatch(path.name) is None:
+                raise PublisherIsolationError("change-event publisher requires a YYYY-MM.jsonl file")
         elif kind == "run":
             if len(path.parts) != 3 or path.parts[:2] != ("data", "runs") or _MONTH_FILE.fullmatch(path.name) is None:
                 raise PublisherIsolationError("run publisher can only write monthly compact manifests")
@@ -241,14 +239,14 @@ class ObservationOnlyPublisher:
 
     def _validate_baseline(self, path: str, artifact: PublisherArtifact) -> str | None:
         if self.root is None:
-            if artifact.kind in {"observation", "run"}:
+            if artifact.kind in {"observation", "change_event", "run"}:
                 raise PublisherIsolationError(
                     "machine artifacts require a repository root for CAS and append validation"
                 )
             if artifact.base_sha256 is not None:
                 raise PublisherIsolationError("publisher base_sha256 requires a repository root")
             return None
-        if artifact.kind in {"observation", "run"}:
+        if artifact.kind in {"observation", "change_event", "run"}:
             month = PurePosixPath(path).stem
             if month < datetime.now(timezone.utc).strftime("%Y-%m"):
                 raise PublisherIsolationError(
@@ -265,7 +263,7 @@ class ObservationOnlyPublisher:
                 f"publisher baseline CAS mismatch for {path}: expected {artifact.base_sha256 or '<absent>'}, "
                 f"found {current_sha256 or '<absent>'}"
             )
-        if exists and artifact.kind in {"observation", "run"}:
+        if exists and artifact.kind in {"observation", "change_event", "run"}:
             try:
                 current_text = current.decode("utf-8")
             except UnicodeDecodeError as exc:
@@ -291,8 +289,24 @@ class ObservationOnlyPublisher:
                 ) from exc
         return records
 
+    @staticmethod
+    def _parse_change_events(content: str, path: str) -> list[ChangeEvent]:
+        events: list[ChangeEvent] = []
+        for line_number, line in enumerate(content.splitlines(), start=1):
+            if not line.strip():
+                continue
+            try:
+                value = json.loads(line)
+                events.append(ChangeEvent.from_dict(value))
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                raise PublisherIsolationError(
+                    f"publisher change event is invalid at {path}:{line_number}"
+                ) from exc
+        return events
+
     def _validate_overlay(self, artifacts: list[PublisherArtifact]) -> None:
         observation_artifacts = [item for item in artifacts if item.kind == "observation"]
+        change_event_artifacts = [item for item in artifacts if item.kind == "change_event"]
         run_artifacts = [item for item in artifacts if item.kind == "run"]
         by_event: dict[str, ObservationRecord] = {}
         by_collection: dict[str, ObservationRecord] = {}
@@ -301,6 +315,8 @@ class ObservationOnlyPublisher:
         corrections: set[str] = set()
         existing_records: list[ObservationRecord] = []
         existing_observations_by_path: dict[str, list[ObservationRecord]] = {}
+        existing_change_events: list[ChangeEvent] = []
+        existing_change_events_by_path: dict[str, list[ChangeEvent]] = {}
         projects = []
         if self.root is not None:
             try:
@@ -312,6 +328,14 @@ class ObservationOnlyPublisher:
                     )
                     existing_observations_by_path[path_key] = records
                     existing_records.extend(records)
+                change_event_directory = self.root / "data" / "change-events"
+                for path in sorted(change_event_directory.glob("*.jsonl")):
+                    path_key = path.relative_to(self.root).as_posix()
+                    events = self._parse_change_events(
+                        path.read_text(encoding="utf-8"), path_key
+                    )
+                    existing_change_events_by_path[path_key] = events
+                    existing_change_events.extend(events)
                 projects = ProjectStore(self.root).all()
             except (ValidationError, ValueError, OSError) as exc:
                 raise PublisherIsolationError("existing repository data is invalid") from exc
@@ -322,7 +346,7 @@ class ObservationOnlyPublisher:
             records = self._parse_observations(artifact.content, artifact.path)
             baseline = existing_observations_by_path.get(artifact.path, [])
             for record in records:
-                if _partition_month(record.recorded_at) != month:
+                if writable_month(record.recorded_at) != month:
                     raise PublisherIsolationError(
                         f"publisher observation timestamp does not match monthly path: {artifact.path}"
                     )
@@ -392,6 +416,65 @@ class ObservationOnlyPublisher:
                 ):
                     raise PublisherIsolationError(
                         "publisher observation repository is not bound to its project"
+                    )
+
+        all_change_events: list[tuple[str, ChangeEvent]] = []
+        baseline_change_replays: set[tuple[str, str]] = set()
+        for artifact in change_event_artifacts:
+            month = PurePosixPath(artifact.path).stem
+            events = self._parse_change_events(artifact.content, artifact.path)
+            baseline = existing_change_events_by_path.get(artifact.path, [])
+            for event in events:
+                if writable_month(event.detected_at) != month:
+                    raise PublisherIsolationError(
+                        f"publisher change-event timestamp does not match monthly path: {artifact.path}"
+                    )
+            for index, event in enumerate(events):
+                if index < len(baseline) and event.fingerprint == baseline[index].fingerprint:
+                    baseline_change_replays.add((artifact.path, event.fingerprint))
+                all_change_events.append((artifact.path, event))
+
+        existing_change_by_fingerprint = {
+            event.fingerprint: event for event in existing_change_events
+        }
+        existing_change_by_id = {event.change_id: event for event in existing_change_events}
+        existing_change_by_transition = {
+            self._change_transition_key(event): event for event in existing_change_events
+        }
+        overlay_change_fingerprints: set[str] = set()
+        overlay_change_ids: set[str] = set()
+        overlay_change_transitions: set[tuple[str, str, str]] = set()
+        for artifact_path, event in all_change_events:
+            if event.before_event_id not in by_event or event.after_event_id not in by_event:
+                raise PublisherIsolationError(
+                    "publisher change event evidence observations are not present"
+                )
+            transition = self._change_transition_key(event)
+            if event.fingerprint in overlay_change_fingerprints or event.change_id in overlay_change_ids:
+                raise PublisherIsolationError("publisher change events repeat identity")
+            if transition in overlay_change_transitions:
+                raise PublisherIsolationError("publisher change events repeat a transition")
+            overlay_change_fingerprints.add(event.fingerprint)
+            overlay_change_ids.add(event.change_id)
+            overlay_change_transitions.add(transition)
+            previous = existing_change_by_fingerprint.get(event.fingerprint)
+            if previous is not None:
+                if (artifact_path, event.fingerprint) in baseline_change_replays:
+                    continue
+                raise PublisherIsolationError("publisher change event repeats an existing fingerprint")
+            if event.change_id in existing_change_by_id:
+                raise PublisherIsolationError("publisher change event repeats an existing change_id")
+            if transition in existing_change_by_transition:
+                raise PublisherIsolationError("publisher change event repeats an existing transition")
+            if self.root is not None:
+                project = project_map.get(event.project_id)
+                if project is None or not any(
+                    repository.provider == event.provider
+                    and repository.repository_id == event.repository_id
+                    for repository in project.repositories
+                ):
+                    raise PublisherIsolationError(
+                        "publisher change event repository is not bound to its project"
                     )
 
         existing_runs: dict[str, str] = {}
@@ -477,6 +560,10 @@ class ObservationOnlyPublisher:
         right_data.pop("run_id", None)
         return left_data == right_data
 
+    @staticmethod
+    def _change_transition_key(event: ChangeEvent) -> tuple[str, str, str]:
+        return event.before_event_id, event.after_event_id, event.field
+
     def _validate_content(self, artifact: PublisherArtifact) -> str:
         if not isinstance(artifact.content, str) or "\x00" in artifact.content:
             raise PublisherIsolationError("publisher content must be UTF-8 text without NUL bytes")
@@ -486,16 +573,24 @@ class ObservationOnlyPublisher:
         digest = hashlib.sha256(encoded).hexdigest()
         if artifact.sha256 is not None and artifact.sha256 != digest:
             raise PublisherIsolationError("publisher artifact sha256 does not match content")
-        if artifact.kind in {"observation", "run"}:
+        if artifact.kind in {"observation", "change_event", "run"}:
             seen_events: set[str] = set()
             seen_slots: set[str] = set()
             seen_superseded: set[str] = set()
             existing_events: set[str] = set()
+            existing_change_fingerprints: set[str] = set()
             if artifact.kind == "observation" and self.root is not None:
                 try:
                     existing_events = {record.event_id for record in ObservationStore(self.root).all()}
                 except (ValidationError, ValueError) as exc:
                     raise PublisherIsolationError("existing observation log is invalid") from exc
+            if artifact.kind == "change_event" and self.root is not None:
+                try:
+                    existing_change_fingerprints = {
+                        event.fingerprint for event in ChangeEventStore(self.root).all()
+                    }
+                except (ValueError, OSError) as exc:
+                    raise PublisherIsolationError("existing change-event log is invalid") from exc
             for line_number, line in enumerate(artifact.content.splitlines(), start=1):
                 if not line.strip():
                     continue
@@ -529,6 +624,20 @@ class ObservationOnlyPublisher:
                         if record.supersedes not in existing_events and record.supersedes not in seen_events:
                             raise PublisherIsolationError("publisher correction target is not present")
                         seen_superseded.add(record.supersedes)
+                elif artifact.kind == "change_event":
+                    try:
+                        event = ChangeEvent.from_dict(value)
+                    except (ValueError, TypeError) as exc:
+                        raise PublisherIsolationError(
+                            f"publisher change event is invalid at line {line_number}"
+                        ) from exc
+                    if event.fingerprint in seen_events:
+                        raise PublisherIsolationError("publisher change event repeats fingerprint")
+                    seen_events.add(event.fingerprint)
+                    if event.fingerprint in existing_change_fingerprints:
+                        # Existing baseline rows are checked again by _validate_overlay;
+                        # keeping this set here prevents duplicate new rows in one artifact.
+                        continue
                 else:
                     try:
                         schema_path = self.root / "schemas" / "run-manifest.v1.json" if self.root else None
@@ -548,7 +657,9 @@ class ObservationOnlyPublisher:
                                 or not value["finished_at"].endswith("Z")
                             ):
                                 raise ValueError("required fields are missing")
-                            if value.get("kind") not in {"ingest", "collect", "generate", "validate"}:
+                            if value.get("kind") not in {
+                                "ingest", "collect", "detect-changes", "generate", "validate"
+                            }:
                                 raise ValueError("kind is invalid")
                             if value.get("status") not in {"started", "succeeded", "partial", "pending", "failed"}:
                                 raise ValueError("status is invalid")

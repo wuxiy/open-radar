@@ -106,6 +106,14 @@ def iso_utc(value: datetime) -> str:
     return ensure_utc(value).isoformat().replace("+00:00", "Z")
 
 
+def writable_month(value: datetime) -> str:
+    """Return the only writable UTC month; closed and future months are clamped."""
+    value = ensure_utc(value)
+    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
+    month = value.strftime("%Y-%m")
+    return month if month == current_month else current_month
+
+
 def _validate_list_of_strings(value: Any, path: str, *, unique: bool = False) -> list[str]:
     if not isinstance(value, list):
         raise ValidationError(f"{path} must be an array")

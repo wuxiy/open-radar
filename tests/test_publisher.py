@@ -3,7 +3,9 @@ from tempfile import TemporaryDirectory
 import unittest
 import hashlib
 import json
+from datetime import datetime, timezone
 
+from open_radar.change_detection import ChangeDetector
 from open_radar.publisher import (
     ObservationOnlyPublisher,
     PublisherArtifact,
@@ -68,6 +70,83 @@ class PublisherTests(unittest.TestCase):
                 plan.files[0].sha256,
                 hashlib.sha256(plan.files[0].content.encode("utf-8")).hexdigest(),
             )
+
+    def test_change_event_artifact_is_schema_and_project_bound(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            project = Project.from_dict(
+                {
+                    "schema_version": 1,
+                    "id": "radar-demo",
+                    "display_name": "Radar Demo",
+                    "aliases": [],
+                    "repositories": [
+                        {
+                            "provider": "github",
+                            "repository_id": 1,
+                            "owner": "example",
+                            "repo": "radar-demo",
+                            "role": "primary",
+                        }
+                    ],
+                    "primary_category": "devtools",
+                    "tags": [],
+                    "discovery_sources": [],
+                    "research_stage": "watching",
+                    "decision": "undecided",
+                    "tracking": "weekly",
+                    "personal_notes": "",
+                }
+            )
+            ProjectStore(root).save(project)
+            before = ObservationRecord.from_dict(
+                {
+                    "schema_version": 1,
+                    "record_type": "observation",
+                    "event_id": "obs-before",
+                    "collection_key": "slot-before",
+                    "run_id": "run-before",
+                    "project_id": "radar-demo",
+                    "provider": "github",
+                    "repository_id": 1,
+                    "scheduled_at": "2026-09-03T00:00:00Z",
+                    "observed_at": "2026-09-03T00:00:00Z",
+                    "recorded_at": "2026-09-03T00:00:00Z",
+                    "collector_version": "v1",
+                    "source": "fixture",
+                    "metrics": {},
+                    "facts": {"archived": False},
+                    "unavailable": {},
+                }
+            )
+            after_data = before.to_dict()
+            after_data.update(
+                {
+                    "event_id": "obs-after",
+                    "collection_key": "slot-after",
+                    "run_id": "run-after",
+                    "observed_at": "2026-09-04T00:00:00Z",
+                    "recorded_at": "2026-09-04T00:00:00Z",
+                    "facts": {"archived": True},
+                }
+            )
+            after = ObservationRecord.from_dict(after_data)
+            ObservationStore(root).append_batch([before, after])
+            event = ChangeDetector().detect(
+                [before, after],
+                detected_at=datetime(2026, 9, 4, tzinfo=timezone.utc),
+            )[0]
+            content = json.dumps(event.to_dict(), sort_keys=True) + "\n"
+            plan = ObservationOnlyPublisher(root).plan(
+                [
+                    PublisherArtifact(
+                        "data/change-events/2026-09.jsonl",
+                        content,
+                        "change_event",
+                    )
+                ]
+            )
+            self.assertEqual(plan.paths, ("data/change-events/2026-09.jsonl",))
 
     def test_protected_paths_and_invalid_content_are_rejected(self):
         publisher = ObservationOnlyPublisher()

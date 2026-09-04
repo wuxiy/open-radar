@@ -8,11 +8,12 @@
 - 人工合并对账；支持从事务恢复，并保留已合并 PR 中经过校验的项目修改。
 - Observation-only Publisher：月度路径白名单、域对象/运行清单校验、纠正目标检查、README 确定性重建和 SHA-256 摘要。
 - 本地阻塞修复：重放 processing/completed/failed 事务与 claim fencing、Provider 权威合并和 bot gate、Publisher 基线 CAS/追加与统一 overlay、带回执校验的 sink CAS、单可写分区批量原子提交。
+- V0.2 首个切片：确定性 Change Intelligence、`change-event.v1.json`、阈值比较、证据指纹幂等存储和 `detect-changes` CLI。
 - 临时 Git 仓库离线 E2E Fixture，覆盖 Issue、PR、合并、采集、README 和 Publisher。
 
 ## 验证
 
-`PYTHONPATH=src python -m unittest discover -s tests`：84 个测试通过，1 个真实 GitHub API 测试按默认策略跳过；`compileall`、`git diff --check` 和静态审计通过。
+`PYTHONPATH=src python -m unittest discover -s tests`：94 个测试通过，1 个真实 GitHub API 测试按默认策略跳过；`compileall`、`git diff --check` 和静态审计通过。
 
 ## 外部集成边界
 

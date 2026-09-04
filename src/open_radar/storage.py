@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
@@ -12,20 +11,11 @@ from typing import Iterator
 
 import yaml
 
-from .domain import ObservationRecord, Project, ValidationError
+from .domain import ObservationRecord, Project, ValidationError, writable_month
 
 
 class DuplicateCollectionError(ValueError):
     """Raised when a collection slot is replayed with different data."""
-
-
-def _partition_month(recorded_at: datetime) -> str:
-    """Return the writable partition; closed or future months use current month."""
-    observed_month = recorded_at.strftime("%Y-%m")
-    current_month = datetime.now(timezone.utc).strftime("%Y-%m")
-    if observed_month < current_month or observed_month > current_month:
-        return current_month
-    return observed_month
 
 
 def current_observations(
@@ -232,7 +222,7 @@ class ObservationStore:
         # later replace fails, restore every partition that was already moved.
         grouped: dict[Path, list[bytes]] = {}
         for record in accepted:
-            path = self.directory / f"{_partition_month(record.recorded_at)}.jsonl"
+            path = self.directory / f"{writable_month(record.recorded_at)}.jsonl"
             grouped.setdefault(path, []).append(
                 (
                     json.dumps(

@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": {"const": 1},
     "run_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["ingest", "collect", "generate", "validate"]},
+    "kind": {"enum": ["ingest", "collect", "detect-changes", "generate", "validate"]},
     "started_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "finished_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "status": {"enum": ["started", "succeeded", "partial", "pending", "failed"]},
@@ -17,6 +17,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "project_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
         "request_id": {"type": "string", "minLength": 1},
         "intake_repository_id": {"type": "string", "minLength": 1},
         "issue_number": {"type": "integer", "minimum": 1},

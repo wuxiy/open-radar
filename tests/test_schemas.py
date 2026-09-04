@@ -62,11 +62,33 @@ OBSERVATION = {
 }
 
 
+CHANGE_EVENT = {
+    "schema_version": 1,
+    "change_id": "change-0123456789abcdef01234567",
+    "fingerprint": "0" * 64,
+    "project_id": "radar-demo",
+    "provider": "github",
+    "repository_id": 100000001,
+    "before_event_id": "observation-before",
+    "after_event_id": "observation-after",
+    "before_observed_at": "2026-09-03T00:00:00Z",
+    "after_observed_at": "2026-09-04T00:00:00Z",
+    "detected_at": "2026-09-04T00:03:00Z",
+    "change_type": "license",
+    "field": "facts.license_spdx",
+    "severity": "high",
+    "before": "MIT",
+    "after": "Apache-2.0",
+    "rule_version": "change-rules/1",
+}
+
+
 class SchemaTests(unittest.TestCase):
     def test_versioned_project_and_observation_validate(self):
         validator = SchemaValidator(ROOT)
         validator.validate("project.v1.json", PROJECT)
         validator.validate("observation.v1.json", OBSERVATION)
+        validator.validate("change-event.v1.json", CHANGE_EVENT)
         request = AdmissionRequest.from_dict(
             {
                 "schema_version": 1,

@@ -77,11 +77,20 @@ Validate project YAML, observation logs, taxonomy, run manifests, correction cha
 open-radar validate
 ```
 
+Derive deterministic Change Intelligence events from adjacent observation history:
+
+```bash
+open-radar detect-changes
+```
+
+The command compares only known `facts` and `metrics`, applies versioned thresholds (license and archive changes are high severity; material stars/forks changes are activity events), and appends evidence-bound events under `data/change-events/YYYY-MM.jsonl`. Unknown values do not produce a change. Re-running the command is idempotent by fingerprint; events never mutate project state or invoke an LLM.
+
 ## Repository layout
 
 ```text
   data/
   observations/github/   Monthly append-only observation logs
+  change-events/         Deterministic, evidence-bound change events
   projects/              Human-maintained project YAML
   runs/                  Compact manifests, replay, usage, and admission ledgers
   taxonomy/              Controlled categories and tags
@@ -101,7 +110,7 @@ Project state uses three independent fields:
 
 Machine-owned metrics do not belong in project YAML. Corrections append a new record with `supersedes` and `correction_reason`; existing history is not rewritten.
 
-Observation publishing is constrained by `ObservationOnlyPublisher`. Its allowlist accepts monthly GitHub observation JSONL, compact run JSONL, and a generated README. Existing machine files require a per-artifact baseline SHA-256 and byte-for-byte append semantics; the plan also carries a stable idempotency key and baseline state digest for a sink-side CAS check. A `PublisherSink` must receive that digest and return a matching `PublisherCommitResult`; a legacy or CAS-rejecting sink fails closed. Historical month partitions are closed: late or future-dated observations are routed to the current writable month while retaining their original timestamps. Multiple artifacts are validated as one overlay before the README is regenerated, so a stale README or cross-file duplicate cannot pass. The publisher rejects project, taxonomy, schema, workflow, traversal, symlink, duplicate-path, malformed-JSONL, and oversized artifacts. It never interprets external text or executes commands. Source signatures and protected-branch enforcement remain deployment-specific checks for the live adapter.
+Observation publishing is constrained by `ObservationOnlyPublisher`. Its allowlist accepts monthly GitHub observation JSONL, compact run JSONL, deterministic change-event JSONL, and a generated README. Existing machine files require a per-artifact baseline SHA-256 and byte-for-byte append semantics; the plan also carries a stable idempotency key and baseline state digest for a sink-side CAS check. A `PublisherSink` must receive that digest and return a matching `PublisherCommitResult`; a legacy or CAS-rejecting sink fails closed. Historical month partitions are closed: late or future-dated observations are routed to the current writable month while retaining their original timestamps. Multiple artifacts are validated as one overlay before the README is regenerated, so a stale README or cross-file duplicate cannot pass. The publisher rejects project, taxonomy, schema, workflow, traversal, symlink, duplicate-path, malformed-JSONL, and oversized artifacts. It never interprets external text or executes commands. Source signatures and protected-branch enforcement remain deployment-specific checks for the live adapter.
 
 Observation batches are validated in memory and committed through a staged atomic replacement of one writable month partition; a batch spanning multiple partitions is rejected before any write.
 
@@ -127,6 +136,6 @@ The GitHub Actions workflow runs the offline suite and repository validation wit
 
 ## Current boundary
 
-The local core covers identity resolution, admission candidates, persistent webhook replay deduplication, rate/budget enforcement, durable admission transactions, deterministic PR planning and human-merge reconciliation, project storage, scheduled metadata collection, append-only observations, observation-only publisher isolation, schema and taxonomy validation, and deterministic README generation.
+The local core covers identity resolution, admission candidates, persistent webhook replay deduplication, rate/budget enforcement, durable admission transactions, deterministic PR planning and human-merge reconciliation, project storage, scheduled metadata collection, append-only observations, deterministic Change Intelligence events, observation-only publisher isolation, schema and taxonomy validation, and deterministic README generation.
 
 The controlled E2E test is offline and uses deterministic provider/PR fakes. Live GitHub Issue-to-PR writes, protected-branch checks, provenance signatures, and a real authorized test repository still require explicit credentials and an integration run; they are not simulated as complete here.

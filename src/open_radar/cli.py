@@ -27,6 +27,7 @@ from .admission_controls import (
     RateBudgetPolicy,
 )
 from .admission_transactions import AdmissionTransactionError, AdmissionTransactionStore
+from .change_detection import ChangeDetector, ChangeEventStore
 from .github_provider import GitHubApiClient, GitHubProvider, GitHubProviderError
 from .generation import render_readme, write_readme
 from .storage import ObservationStore, ProjectStore
@@ -302,6 +303,47 @@ def _collect(namespace: argparse.Namespace) -> int:
         return 1
 
 
+def _detect_changes(namespace: argparse.Namespace) -> int:
+    root = _root(namespace)
+    started = _now()
+    run_id = _run_id()
+    try:
+        observations = ObservationStore(root).all()
+        detected = ChangeDetector().detect(
+            observations,
+            detected_at=started,
+            project_id=namespace.project_id,
+        )
+        appended = ChangeEventStore(root).append_many(detected)
+        print(f"change events detected: {len(detected)}")
+        print(f"change events appended: {appended}")
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="detect-changes",
+            started_at=started,
+            status="succeeded",
+            counts={
+                "events_detected": len(detected),
+                "events_appended": appended,
+            },
+            metadata={"project_id": namespace.project_id} if namespace.project_id else None,
+        )
+        return 0
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        print(f"detect-changes failed: {exc}", file=sys.stderr)
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="detect-changes",
+            started_at=started,
+            status="failed",
+            counts={},
+            errors=[str(exc)],
+        )
+        return 1
+
+
 def _generate(namespace: argparse.Namespace) -> int:
     root = _root(namespace)
     started = _now()
@@ -375,6 +417,27 @@ def _validate(namespace: argparse.Namespace) -> int:
                     )
             except ValueError as exc:
                 errors.append(f"observation {observation.event_id}: {exc}")
+        try:
+            change_store = ChangeEventStore(root)
+            for event in change_store.all():
+                try:
+                    validator.validate("change-event.v1.json", event.to_dict())
+                    project = project_by_id.get(event.project_id)
+                    if project is None:
+                        raise ValueError(f"change event references unknown project: {event.project_id}")
+                    if not any(
+                        repository.provider == event.provider
+                        and repository.repository_id == event.repository_id
+                        for repository in project.repositories
+                    ):
+                        raise ValueError(
+                            "change event repository is not registered on its project: "
+                            f"{event.provider}:{event.repository_id}"
+                        )
+                except ValueError as exc:
+                    errors.append(f"change event {event.change_id}: {exc}")
+        except (ValueError, FileNotFoundError) as exc:
+            errors.append(f"change event ledger: {exc}")
         seen_run_ids: set[str] = set()
         for manifest_path in sorted((root / "data" / "runs").glob("*.jsonl")):
             if re.fullmatch(r"(?:19|20)[0-9]{2}-(?:0[1-9]|1[0-2])\.jsonl", manifest_path.name) is None:
@@ -458,6 +521,13 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--run-id")
     collect.add_argument("--scheduled-at")
     collect.set_defaults(handler=_collect)
+
+    detect_changes = subparsers.add_parser(
+        "detect-changes", help="derive deterministic change events from observations"
+    )
+    detect_changes.add_argument("--root", default=argparse.SUPPRESS)
+    detect_changes.add_argument("--project-id")
+    detect_changes.set_defaults(handler=_detect_changes)
 
     generate = subparsers.add_parser("generate", help="render the deterministic README")
     generate.add_argument("--root", default=argparse.SUPPRESS)
