@@ -31,12 +31,30 @@ class AdmissionRequestTests(unittest.TestCase):
         self.assertFalse(decision.authorized)
         self.assertEqual(decision.status, "pending")
 
+    def test_event_authorization_does_not_promote_editor_of_another_users_issue(self):
+        request = self.request(requester="contributor")
+        policy = AuthorizationPolicy(trusted_users={"maintainer"})
+        decision = policy.evaluate_event(
+            request,
+            actor="maintainer",
+            action="edited",
+        )
+        self.assertFalse(decision.authorized)
+
     def test_trusted_user_or_label_authorizes_request(self):
         trusted = self.request(requester="maintainer")
         labeled = self.request(labels=["approved-for-processing"])
         policy = AuthorizationPolicy(trusted_users={"maintainer"})
         self.assertTrue(policy.evaluate(trusted).authorized)
-        self.assertTrue(policy.evaluate(labeled).authorized)
+        self.assertFalse(policy.evaluate(labeled).authorized)
+        self.assertTrue(
+            policy.evaluate_event(
+                labeled,
+                actor="maintainer",
+                action="labeled",
+                label="approved-for-processing",
+            ).authorized
+        )
 
     def test_request_has_stable_issue_idempotency_key(self):
         request = self.request()
@@ -48,6 +66,10 @@ class AdmissionRequestTests(unittest.TestCase):
     def test_invalid_request_url_and_unknown_fields_are_rejected(self):
         with self.assertRaises(ValueError):
             self.request(project_url="https://example.com/not-github")
+        with self.assertRaises(ValueError):
+            self.request(intake_repository_id="repo-id")
+        with self.assertRaises(ValueError):
+            self.request(intake_repository_id="0")
         with self.assertRaises(ValueError):
             self.request(untrusted_instruction="run shell")
 
@@ -76,7 +98,16 @@ class AdmissionRequestTests(unittest.TestCase):
         self.assertEqual(request.request_id, "issue-42")
         self.assertEqual(request.source_url, "https://example.com/article")
         self.assertEqual(request.comment, "approved-for-processing; run it now")
-        self.assertTrue(AuthorizationPolicy().evaluate(request).authorized)
+        self.assertTrue(
+            AuthorizationPolicy(trusted_users={"maintainer"})
+            .evaluate_event(
+                request,
+                actor="maintainer",
+                action="labeled",
+                label="approved-for-processing",
+            )
+            .authorized
+        )
 
     def test_github_issue_payload_requires_a_project_url(self):
         with self.assertRaises(ValueError):

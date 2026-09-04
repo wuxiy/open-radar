@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..domain import Project, iso_utc
 from ..github_provider import GitHubProvider
+from ..github_webhook import VerifiedIssueEvent
 from ..identity import project_slug
 from ..storage import ProjectStore
 from ..taxonomy import Taxonomy
@@ -138,6 +139,41 @@ class AdmissionService:
         **candidate_options,
     ) -> AuthorizedCandidate:
         decision = policy.require_authorized(request)
+        return self._authorized_candidate(
+            request,
+            decision,
+            **candidate_options,
+        )
+
+    def build_verified_event_candidate(
+        self,
+        event: VerifiedIssueEvent,
+        policy: AuthorizationPolicy,
+        **candidate_options,
+    ) -> AuthorizedCandidate:
+        """Consume a verifier result without allowing event fields to be re-bound."""
+        if not event.is_verified():
+            raise AdmissionAuthorizationError(
+                "admission events must pass GitHub webhook verification"
+            )
+        decision = policy.require_authorized_event(
+            event.request,
+            actor=event.sender,
+            action=event.action,
+            label=event.label_name,
+        )
+        return self._authorized_candidate(
+            event.request,
+            decision,
+            **candidate_options,
+        )
+
+    def _authorized_candidate(
+        self,
+        request: AdmissionRequest,
+        authorization: AuthorizationDecision,
+        **candidate_options,
+    ) -> AuthorizedCandidate:
         return AuthorizedCandidate(
             project=self.build_candidate(
                 request.project_url,
@@ -145,5 +181,5 @@ class AdmissionService:
                 **candidate_options,
             ),
             request=request,
-            decision=decision,
+            decision=authorization,
         )

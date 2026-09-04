@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": {"const": 1},
     "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"},
-    "intake_repository_id": {"type": "string", "minLength": 1},
+    "intake_repository_id": {"type": "string", "pattern": "^[1-9][0-9]*$"},
     "issue_number": {"type": "integer", "minimum": 1},
     "project_url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
     "requester": {"type": "string", "minLength": 1},

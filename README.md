@@ -47,6 +47,10 @@ open-radar ingest \
 
 The local CLI reads trusted users from the protected `OPEN_RADAR_TRUSTED_USERS` environment variable. Request comments are untrusted context. Label authorization is available to the webhook payload adapter, not as a free-form CLI switch. `--merge-confirmed` is a local gate; the real Issue → admission PR → human merge flow remains integration work.
 
+The Issue boundary is exposed as `GitHubWebhookVerifier` in [`src/open_radar/github_webhook.py`](src/open_radar/github_webhook.py). Configure it with the intake repository's numeric GitHub ID. It requires the raw request body, the `X-Hub-Signature-256` value, and an `issues` event; it rejects invalid signatures, cross-repository events, unsupported actions, and malformed Issue forms before creating an `AdmissionRequest`. Keep `OPEN_RADAR_WEBHOOK_SECRET` in the webhook worker's protected configuration. No webhook server or GitHub write operation is included in this local core.
+
+For authorization, hand the verifier result to `AdmissionService.build_verified_event_candidate`; it carries the verified `sender`, `action`, and `label_name` into the policy without allowing callers to re-bind those fields. A labeled event is accepted only when the verified sender is trusted and the changed label is `approved-for-processing`. Delivery IDs are required at this boundary; durable replay deduplication belongs to the pending admission transaction integration.
+
 Collect due projects. The client sends read-only requests to the GitHub API. Set `GITHUB_TOKEN` for authenticated rate limits, or pass `--token` directly.
 
 ```bash

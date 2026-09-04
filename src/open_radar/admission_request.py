@@ -75,7 +75,10 @@ class AdmissionRequest:
         if not isinstance(request_id, str) or not REQUEST_ID_PATTERN.fullmatch(request_id):
             raise ValueError("admission request request_id is invalid")
         intake_repository_id = data.get("intake_repository_id")
-        if not isinstance(intake_repository_id, str) or not intake_repository_id.strip():
+        if (
+            not isinstance(intake_repository_id, str)
+            or re.fullmatch(r"[1-9][0-9]*", intake_repository_id.strip()) is None
+        ):
             raise ValueError("admission request intake_repository_id is required")
         issue_number = data.get("issue_number")
         if isinstance(issue_number, bool) or not isinstance(issue_number, int) or issue_number <= 0:
@@ -130,8 +133,12 @@ class AdmissionRequest:
             raise ValueError("GitHub issue user.login is required")
         repository = payload.get("repository")
         intake_repository_id = repository.get("id") if isinstance(repository, Mapping) else None
-        if isinstance(intake_repository_id, bool) or not isinstance(intake_repository_id, (str, int)):
-            raise ValueError("GitHub issue repository.id is required")
+        if (
+            isinstance(intake_repository_id, bool)
+            or not isinstance(intake_repository_id, int)
+            or intake_repository_id <= 0
+        ):
+            raise ValueError("GitHub issue repository.id must be a positive integer")
         body = issue.get("body") or ""
         if not isinstance(body, str):
             raise ValueError("GitHub issue body must be a string or null")
@@ -220,14 +227,55 @@ class AuthorizationPolicy:
         self._required_label = required_label
 
     def evaluate(self, request: AdmissionRequest) -> AuthorizationDecision:
+        """Authorize the original requester's trusted submission only."""
         if request.requester.casefold() in self._trusted_users:
             return AuthorizationDecision("authorized", "trusted_user")
-        if self._required_label in request.labels:
-            return AuthorizationDecision("authorized", "maintainer_label")
+        return AuthorizationDecision("pending", "awaiting_maintainer_authorization")
+
+    def evaluate_event(
+        self,
+        request: AdmissionRequest,
+        *,
+        actor: str,
+        action: str,
+        label: str | None = None,
+    ) -> AuthorizationDecision:
+        if not isinstance(actor, str) or not actor.strip():
+            return AuthorizationDecision("pending", "awaiting_maintainer_authorization")
+        if action == "labeled":
+            if label != self._required_label:
+                return AuthorizationDecision("pending", "awaiting_maintainer_authorization")
+            if actor.casefold() in self._trusted_users:
+                return AuthorizationDecision("authorized", "maintainer_label")
+            return AuthorizationDecision("pending", "awaiting_maintainer_authorization")
+        if action not in {"opened", "reopened", "edited"}:
+            return AuthorizationDecision("pending", "awaiting_maintainer_authorization")
+        if actor.casefold() == request.requester.casefold() and actor.casefold() in self._trusted_users:
+            return AuthorizationDecision("authorized", "trusted_user")
         return AuthorizationDecision("pending", "awaiting_maintainer_authorization")
 
     def require_authorized(self, request: AdmissionRequest) -> AuthorizationDecision:
         decision = self.evaluate(request)
+        if not decision.authorized:
+            raise AdmissionAuthorizationError(
+                f"admission request {request.request_id} is pending authorization"
+            )
+        return decision
+
+    def require_authorized_event(
+        self,
+        request: AdmissionRequest,
+        *,
+        actor: str,
+        action: str,
+        label: str | None = None,
+    ) -> AuthorizationDecision:
+        decision = self.evaluate_event(
+            request,
+            actor=actor,
+            action=action,
+            label=label,
+        )
         if not decision.authorized:
             raise AdmissionAuthorizationError(
                 f"admission request {request.request_id} is pending authorization"
