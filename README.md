@@ -30,7 +30,20 @@ open-radar ingest \
   --discovered-at 2026-09-03T00:00:00Z
 ```
 
-Add `--write` after reviewing the candidate to save `data/projects/<project-id>.yaml`. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities.
+Add `--write` only after an authorized request has passed review. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities.
+
+```bash
+open-radar ingest \
+  https://github.com/example-org/radar-demo \
+  --write \
+  --request-id issue-42 \
+  --requester maintainer \
+  --intake-repository-id 987654321 \
+  --issue-number 42 \
+  --merge-confirmed
+```
+
+The local CLI reads trusted users from the protected `OPEN_RADAR_TRUSTED_USERS` environment variable. Request comments are untrusted context. Label authorization is available to the webhook payload adapter, not as a free-form CLI switch. `--merge-confirmed` is a local gate; the real Issue → admission PR → human merge flow remains integration work.
 
 Collect due projects. The client sends read-only requests to the GitHub API. Set `GITHUB_TOKEN` for authenticated rate limits, or pass `--token` directly.
 

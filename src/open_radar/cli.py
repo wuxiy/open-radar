@@ -13,11 +13,22 @@ import uuid
 import yaml
 
 from .contracts.schema import SchemaValidator
+from .admission_request import (
+    AdmissionAuthorizationError,
+    AdmissionRequest,
+    AuthorizationPolicy,
+)
 from .github_provider import GitHubApiClient, GitHubProvider
 from .generation import render_readme, write_readme
 from .storage import ObservationStore, ProjectStore
 from .taxonomy import Taxonomy
-from .workflows.admission import AdmissionService, DuplicateRepositoryError, SlugCollisionError
+from .workflows.admission import (
+    AdmissionMergeGateError,
+    AdmissionService,
+    AuthorizedCandidate,
+    DuplicateRepositoryError,
+    SlugCollisionError,
+)
 from .workflows.collection import CollectionService
 
 
@@ -36,7 +47,17 @@ def _run_id() -> str:
     return f"run-{uuid.uuid4().hex[:16]}"
 
 
-def _write_manifest(root: Path, *, run_id: str, kind: str, started_at: datetime, status: str, counts: dict[str, int], errors: list[str] | None = None) -> None:
+def _write_manifest(
+    root: Path,
+    *,
+    run_id: str,
+    kind: str,
+    started_at: datetime,
+    status: str,
+    counts: dict[str, int],
+    errors: list[str] | None = None,
+    metadata: dict[str, object] | None = None,
+) -> None:
     destination = root / "data" / "runs" / f"{started_at:%Y-%m}.jsonl"
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -50,6 +71,8 @@ def _write_manifest(root: Path, *, run_id: str, kind: str, started_at: datetime,
     }
     if errors:
         payload["errors"] = errors
+    if metadata:
+        payload["metadata"] = metadata
     with destination.open("a", encoding="utf-8") as stream:
         stream.write(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
 
@@ -68,32 +91,125 @@ def _ingest(namespace: argparse.Namespace) -> int:
     root = _root(namespace)
     started = _now()
     run_id = _run_id()
+    request: AdmissionRequest | None = None
     try:
         tags = tuple(tag.strip() for tag in namespace.tags.split(",") if tag.strip())
         service = AdmissionService(_provider(namespace), ProjectStore(root), Taxonomy.load(root))
-        candidate = service.build_candidate(
-            namespace.url,
-            discovered_at=_timestamp(namespace.discovered_at) if namespace.discovered_at else started,
-            project_id=namespace.project_id,
-            primary_category=namespace.primary_category,
-            tags=tags,
-            tracking=namespace.tracking,
-            research_stage=namespace.research_stage,
-            decision=namespace.decision,
-        )
+        if bool(namespace.request_id) != bool(namespace.requester):
+            raise ValueError("--request-id and --requester must be provided together")
+        if namespace.write and not namespace.request_id:
+            raise ValueError("--write requires an authorized --request-id and --requester")
+        candidate_options = {
+            "project_id": namespace.project_id,
+            "primary_category": namespace.primary_category,
+            "tags": tags,
+            "tracking": namespace.tracking,
+            "research_stage": namespace.research_stage,
+            "decision": namespace.decision,
+        }
+        if namespace.request_id:
+            request = AdmissionRequest.from_dict(
+                {
+                    "schema_version": 1,
+                    "request_id": namespace.request_id,
+                    "intake_repository_id": namespace.intake_repository_id,
+                    "issue_number": namespace.issue_number,
+                    "project_url": namespace.url,
+                    "requester": namespace.requester,
+                    "labels": [],
+                    "created_at": namespace.discovered_at
+                    or started.isoformat().replace("+00:00", "Z"),
+                    "source_url": namespace.source_url,
+                    "comment": namespace.comment,
+                }
+            )
+            SchemaValidator(root).validate("admission-request.v1.json", request.to_dict())
+            trusted_users = {
+                user.strip()
+                for user in os.environ.get("OPEN_RADAR_TRUSTED_USERS", "").split(",")
+                if user.strip()
+            }
+            candidate = service.build_authorized_candidate(
+                request,
+                AuthorizationPolicy(trusted_users=trusted_users),
+                **candidate_options,
+            )
+        else:
+            candidate = service.build_candidate(
+                namespace.url,
+                discovered_at=_timestamp(namespace.discovered_at) if namespace.discovered_at else started,
+                **candidate_options,
+            )
         if namespace.write:
-            path = service.admit(candidate)
+            if not isinstance(candidate, AuthorizedCandidate):
+                raise AdmissionAuthorizationError(
+                    "only an authorized request can be written"
+                )
+            path = service.admit(candidate, merge_confirmed=namespace.merge_confirmed)
             print(path)
             count = 1
         else:
-            print(yaml.safe_dump(candidate.to_dict(), allow_unicode=True, sort_keys=False), end="")
+            project = candidate.project if isinstance(candidate, AuthorizedCandidate) else candidate
+            print(yaml.safe_dump(project.to_dict(), allow_unicode=True, sort_keys=False), end="")
             count = 0
-        _write_manifest(root, run_id=run_id, kind="ingest", started_at=started, status="succeeded", counts={"admitted": count})
+        metadata = _request_metadata(request)
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="ingest",
+            started_at=started,
+            status="succeeded",
+            counts={"admitted": count},
+            metadata=metadata,
+        )
         return 0
-    except (ValueError, FileNotFoundError, DuplicateRepositoryError, SlugCollisionError) as exc:
-        print(f"ingest failed: {exc}", file=sys.stderr)
-        _write_manifest(root, run_id=run_id, kind="ingest", started_at=started, status="failed", counts={}, errors=[str(exc)])
+    except AdmissionAuthorizationError as exc:
+        print(f"ingest pending: {exc}", file=sys.stderr)
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="ingest",
+            started_at=started,
+            status="pending",
+            counts={},
+            errors=[str(exc)],
+            metadata=_request_metadata(request),
+        )
         return 1
+    except (
+        AdmissionMergeGateError,
+        ValueError,
+        FileNotFoundError,
+        DuplicateRepositoryError,
+        SlugCollisionError,
+    ) as exc:
+        print(f"ingest failed: {exc}", file=sys.stderr)
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="ingest",
+            started_at=started,
+            status="failed",
+            counts={},
+            errors=[str(exc)],
+            metadata=_request_metadata(request),
+        )
+        return 1
+
+
+def _request_metadata(request: AdmissionRequest | None) -> dict[str, object] | None:
+    if request is None:
+        return None
+    comment_preview = request.comment[:512] if request.comment is not None else None
+    return {
+        "request_id": request.request_id,
+        "intake_repository_id": request.intake_repository_id,
+        "issue_number": request.issue_number,
+        "requester": request.requester,
+        "source_url": request.source_url,
+        "comment_preview": comment_preview,
+        "comment_truncated": request.comment is not None and len(request.comment) > 512,
+    }
 
 
 def _collect(namespace: argparse.Namespace) -> int:
@@ -237,6 +353,13 @@ def build_parser() -> argparse.ArgumentParser:
     ingest.add_argument("--research-stage", choices=["watching", "researching", "evaluated"], default="watching")
     ingest.add_argument("--decision", choices=["undecided", "adopt", "reference", "reject"], default="undecided")
     ingest.add_argument("--discovered-at")
+    ingest.add_argument("--request-id")
+    ingest.add_argument("--requester")
+    ingest.add_argument("--intake-repository-id")
+    ingest.add_argument("--issue-number", type=int)
+    ingest.add_argument("--merge-confirmed", action="store_true")
+    ingest.add_argument("--source-url")
+    ingest.add_argument("--comment")
     ingest.set_defaults(handler=_ingest)
 
     collect = subparsers.add_parser("collect", help="collect tracking-enabled GitHub observations")

@@ -1,0 +1,24 @@
+name: Project suggestion
+description: Suggest a public GitHub repository for the radar
+title: "[Project] "
+labels:
+  - pending
+body:
+  - type: input
+    id: project_url
+    attributes:
+      label: Project URL
+      description: HTTPS URL of the public GitHub repository.
+      placeholder: https://github.com/owner/repository
+    validations:
+      required: true
+  - type: input
+    id: source_url
+    attributes:
+      label: Source URL
+      description: Optional page where you found the project.
+  - type: textarea
+    id: comment
+    attributes:
+      label: Why should we track it?
+      description: Optional context for a maintainer to review.

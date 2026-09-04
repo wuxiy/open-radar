@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -10,6 +11,12 @@ from ..github_provider import GitHubProvider
 from ..identity import project_slug
 from ..storage import ProjectStore
 from ..taxonomy import Taxonomy
+from ..admission_request import (
+    AdmissionAuthorizationError,
+    AdmissionRequest,
+    AuthorizationDecision,
+    AuthorizationPolicy,
+)
 
 
 class DuplicateRepositoryError(ValueError):
@@ -18,6 +25,19 @@ class DuplicateRepositoryError(ValueError):
 
 class SlugCollisionError(ValueError):
     """A readable project slug is already used for a different repository."""
+
+
+class AdmissionMergeGateError(PermissionError):
+    """Raised when a candidate has not crossed the human merge gate."""
+
+
+@dataclass(frozen=True)
+class AuthorizedCandidate:
+    """Candidate carrying the authorization decision that produced it."""
+
+    project: Project
+    request: AdmissionRequest
+    decision: AuthorizationDecision
 
 
 class AdmissionService:
@@ -79,7 +99,22 @@ class AdmissionService:
             self.taxonomy.validate_project(candidate)
         return candidate
 
-    def admit(self, candidate: Project) -> Path:
+    def admit(self, candidate: AuthorizedCandidate, *, merge_confirmed: bool = False) -> Path:
+        if not isinstance(candidate, AuthorizedCandidate):
+            raise AdmissionAuthorizationError(
+                "only an authorized candidate can be admitted"
+            )
+        if not candidate.decision.authorized:
+            raise AdmissionAuthorizationError(
+                f"admission request {candidate.request.request_id} is pending authorization"
+            )
+        if not merge_confirmed:
+            raise AdmissionMergeGateError(
+                "candidate must be confirmed as merged before entering the catalog"
+            )
+        return self._persist(candidate.project)
+
+    def _persist(self, candidate: Project) -> Path:
         with self.projects.locked():
             duplicate = self.projects.find_by_repository(
                 "github", candidate.repositories[0].repository_id
@@ -95,3 +130,20 @@ class AdmissionService:
             if existing is not None:
                 raise SlugCollisionError(f"project id is already in use: {candidate.id}")
             return self.projects.save(candidate)
+
+    def build_authorized_candidate(
+        self,
+        request: AdmissionRequest,
+        policy: AuthorizationPolicy,
+        **candidate_options,
+    ) -> AuthorizedCandidate:
+        decision = policy.require_authorized(request)
+        return AuthorizedCandidate(
+            project=self.build_candidate(
+                request.project_url,
+                discovered_at=request.created_at,
+                **candidate_options,
+            ),
+            request=request,
+            decision=decision,
+        )

@@ -1,10 +1,12 @@
 from contextlib import redirect_stdout
 from io import StringIO
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 import shutil
+import os
 
 import yaml
 
@@ -57,6 +59,87 @@ class CliTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertIn("id: radar-demo", output.getvalue())
             self.assertFalse((Path(directory) / "data" / "projects" / "radar-demo.yaml").exists())
+
+    def test_ingest_write_requires_and_checks_authorized_request(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "data" / "taxonomy", root / "data" / "taxonomy")
+            shutil.copytree(ROOT / "schemas", root / "schemas")
+            with patch("open_radar.cli.GitHubApiClient", return_value=FakeClient()), patch.dict(
+                os.environ, {"OPEN_RADAR_TRUSTED_USERS": "maintainer"}, clear=False
+            ):
+                self.assertEqual(
+                    main(
+                        [
+                            "ingest",
+                            "https://github.com/example-org/radar-demo",
+                            "--root",
+                            directory,
+                            "--write",
+                            "--discovered-at",
+                            "2026-09-04T00:00:00Z",
+                        ]
+                    ),
+                    1,
+                )
+                self.assertEqual(
+                    main(
+                        [
+                            "ingest",
+                            "https://github.com/example-org/radar-demo",
+                            "--root",
+                            directory,
+                            "--write",
+                            "--request-id",
+                            "issue-42",
+                            "--requester",
+                            "maintainer",
+                            "--intake-repository-id",
+                            "987654321",
+                            "--issue-number",
+                            "42",
+                            "--merge-confirmed",
+                            "--discovered-at",
+                            "2026-09-04T00:00:00Z",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertTrue((root / "data" / "projects" / "radar-demo.yaml").is_file())
+
+    def test_ingest_write_rejects_untrusted_request_without_traceback(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "data" / "taxonomy", root / "data" / "taxonomy")
+            shutil.copytree(ROOT / "schemas", root / "schemas")
+            with patch("open_radar.cli.GitHubApiClient", return_value=FakeClient()):
+                self.assertEqual(
+                    main(
+                        [
+                            "ingest",
+                            "https://github.com/example-org/radar-demo",
+                            "--root",
+                            directory,
+                            "--write",
+                            "--request-id",
+                            "issue-42",
+                            "--requester",
+                            "contributor",
+                            "--intake-repository-id",
+                            "987654321",
+                            "--issue-number",
+                            "42",
+                        ]
+                    ),
+                    1,
+                )
+            self.assertFalse((root / "data" / "projects" / "radar-demo.yaml").exists())
+            manifest_lines = list((root / "data" / "runs").glob("*.jsonl"))
+            self.assertEqual(len(manifest_lines), 1)
+            manifest = json.loads(manifest_lines[0].read_text(encoding="utf-8").splitlines()[-1])
+            self.assertEqual(manifest["status"], "pending")
+            self.assertEqual(manifest["metadata"]["issue_number"], 42)
+            self.assertIn("comment_preview", manifest["metadata"])
 
     def test_generate_and_validate_commands(self):
         with TemporaryDirectory() as directory:

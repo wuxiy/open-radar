@@ -2,6 +2,7 @@ from pathlib import Path
 import unittest
 
 from open_radar.contracts.schema import SchemaValidator
+from open_radar.admission_request import AdmissionRequest
 from open_radar.domain import Project, ValidationError
 from open_radar.taxonomy import Taxonomy
 
@@ -64,6 +65,21 @@ class SchemaTests(unittest.TestCase):
         validator = SchemaValidator(ROOT)
         validator.validate("project.v1.json", PROJECT)
         validator.validate("observation.v1.json", OBSERVATION)
+        request = AdmissionRequest.from_dict(
+            {
+                "schema_version": 1,
+                "request_id": "issue-42",
+                "intake_repository_id": "987654321",
+                "issue_number": 42,
+                "project_url": "https://github.com/example-org/radar-demo",
+                "requester": "contributor",
+                "labels": [],
+                "created_at": "2026-09-04T00:00:00Z",
+                "source_url": None,
+                "comment": None,
+            }
+        )
+        validator.validate("admission-request.v1.json", request.to_dict())
 
     def test_unknown_fields_are_rejected(self):
         validator = SchemaValidator(ROOT)

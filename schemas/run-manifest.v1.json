@@ -10,8 +10,21 @@
     "kind": {"enum": ["ingest", "collect", "generate", "validate"]},
     "started_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "finished_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
-    "status": {"enum": ["started", "succeeded", "partial", "failed"]},
+    "status": {"enum": ["started", "succeeded", "partial", "pending", "failed"]},
     "counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
-    "errors": {"type": "array", "items": {"type": "string"}}
+    "errors": {"type": "array", "items": {"type": "string"}},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {"type": "string", "minLength": 1},
+        "intake_repository_id": {"type": "string", "minLength": 1},
+        "issue_number": {"type": "integer", "minimum": 1},
+        "requester": {"type": "string", "minLength": 1},
+        "source_url": {"type": ["string", "null"]},
+        "comment_preview": {"type": ["string", "null"], "maxLength": 512},
+        "comment_truncated": {"type": "boolean"}
+      }
+    }
   }
 }

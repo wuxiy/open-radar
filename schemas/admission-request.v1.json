@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/admission-request.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "request_id", "intake_repository_id", "issue_number", "project_url", "requester", "labels", "created_at", "source_url", "comment"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "request_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"},
+    "intake_repository_id": {"type": "string", "minLength": 1},
+    "issue_number": {"type": "integer", "minimum": 1},
+    "project_url": {"type": "string", "format": "uri", "pattern": "^https://github\\.com/"},
+    "requester": {"type": "string", "minLength": 1},
+    "labels": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "created_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "source_url": {"type": ["string", "null"]},
+    "comment": {"type": ["string", "null"]}
+  }
+}

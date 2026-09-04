@@ -3,11 +3,16 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from open_radar.admission_request import AdmissionRequest, AuthorizationPolicy
 from open_radar.domain import Project, RepositoryRef
 from open_radar.github_provider import GitHubProvider
 from open_radar.generation import render_readme
 from open_radar.storage import ObservationStore, ProjectStore
-from open_radar.workflows.admission import DuplicateRepositoryError, AdmissionService
+from open_radar.workflows.admission import (
+    AdmissionMergeGateError,
+    DuplicateRepositoryError,
+    AdmissionService,
+)
 from open_radar.workflows.collection import CollectionService
 
 
@@ -85,9 +90,29 @@ class WorkflowTests(unittest.TestCase):
                 discovered_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
             )
             self.assertEqual(candidate.id, "radar-demo")
-            service.admit(candidate)
+            request = AdmissionRequest.from_dict(
+                {
+                    "schema_version": 1,
+                    "request_id": "issue-42",
+                    "intake_repository_id": "987654321",
+                    "issue_number": 42,
+                    "project_url": "https://github.com/example-org/radar-demo",
+                    "requester": "maintainer",
+                    "labels": [],
+                    "created_at": "2026-09-03T00:00:00Z",
+                    "source_url": None,
+                    "comment": None,
+                }
+            )
+            authorized = service.build_authorized_candidate(
+                request,
+                AuthorizationPolicy(trusted_users={"maintainer"}),
+            )
+            with self.assertRaises(AdmissionMergeGateError):
+                service.admit(authorized)
+            service.admit(authorized, merge_confirmed=True)
             with self.assertRaises(DuplicateRepositoryError):
-                service.admit(candidate)
+                service.admit(authorized, merge_confirmed=True)
 
     def test_collection_is_idempotent_and_skips_tracking_off(self):
         with TemporaryDirectory() as directory:
