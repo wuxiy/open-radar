@@ -2,7 +2,7 @@
 
 Open Radar keeps a small, Git-backed catalog of open-source projects and their public GitHub observations. Project metadata lives in reviewed YAML files. Machine observations append to monthly JSONL logs. A deterministic generator turns the current data into Markdown.
 
-The repository contains the V0.1 local core plus offline-safe admission and publishing seams. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
+The repository contains the V0.1 local core plus offline-safe admission, publishing, and the V0.2.1 Change Intelligence slice. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
 
 ## Install
 
@@ -85,6 +85,35 @@ open-radar detect-changes
 
 The command compares only known `facts` and `metrics`, applies versioned thresholds (license and archive changes are high severity; material stars/forks changes are activity events), and appends evidence-bound events under `data/change-events/YYYY-MM.jsonl`. Unknown values do not produce a change. Re-running the command is idempotent by fingerprint; events never mutate project state or invoke an LLM.
 
+Turn actionable change events into review-only analysis proposals. The default output is stdout; `--output` is an explicit PR artifact and never creates a long-lived `data/proposals` directory:
+
+```bash
+open-radar propose-analysis --output /tmp/open-radar-proposals.jsonl
+```
+
+After human review, append source-bound research records to `research/evidence.jsonl`. Each record distinguishes `fact`, `inference`, and `opinion`, carries a source and input version, and may provide a 0–10 rating for one score dimension. Private contexts are human-maintained under `data/contexts/`:
+
+```bash
+open-radar score \
+  --project-id radar-demo \
+  --context-id open-scope \
+  --evaluated-at 2026-09-04T00:00:00Z
+```
+
+Scores use the versioned five-dimension RadarScore formula. Missing dimensions (including relevance without a selected context) leave the total blank; no zero-filling or weight reallocation occurs. Scores do not change project state.
+
+`validate` resolves `source_type: observation` references against the observation ledger; URL and commit sources retain their immutable locator/SHA, while opaque snapshot IDs remain external evidence references.
+
+Freeze a historical report with an explicit cutoff and input version. Reports are write-once Markdown snapshots with matching JSON metadata; reusing an ID with changed content fails:
+
+```bash
+open-radar report \
+  --cutoff-at 2026-09-04T00:00:00Z \
+  --input-version observations:2026-09
+```
+
+Reports retain cutoff, input, score, and Prompt versions and do not silently recompute when new observations or contexts arrive. The V0.2.1 implementation is deterministic and offline-only; provider `fetch_changes`, LLM execution, relations, and remote writes remain outside this slice.
+
 ## Repository layout
 
 ```text
@@ -94,6 +123,9 @@ The command compares only known `facts` and `metrics`, applies versioned thresho
   projects/              Human-maintained project YAML
   runs/                  Compact manifests, replay, usage, and admission ledgers
   taxonomy/              Controlled categories and tags
+  data/contexts/         Private scoring contexts
+research/                 Source-bound human research evidence
+reports/                  Write-once historical Markdown and metadata
 schemas/                 Versioned JSON Schema contracts
 src/open_radar/          Domain, provider, storage, controls, workflow, and CLI code
 templates/               Trusted README template

@@ -30,6 +30,9 @@ from .admission_transactions import AdmissionTransactionError, AdmissionTransact
 from .change_detection import ChangeDetector, ChangeEventStore
 from .github_provider import GitHubApiClient, GitHubProvider, GitHubProviderError
 from .generation import render_readme, write_readme
+from .reporting import DuplicateReportError, ReportRenderer, ReportStore
+from .research import ResearchEvidenceStore, build_analysis_proposals
+from .scoring import ContextStore, ScoreEngine
 from .storage import ObservationStore, ProjectStore
 from .taxonomy import Taxonomy
 from .workflows.admission import (
@@ -344,6 +347,184 @@ def _detect_changes(namespace: argparse.Namespace) -> int:
         return 1
 
 
+def _write_json_lines(path: Path, records: list[dict[str, object]]) -> None:
+    content = "".join(
+        json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+        for record in records
+    )
+    if path.exists():
+        if path.read_text(encoding="utf-8") == content:
+            return
+        raise FileExistsError(f"refusing to overwrite existing artifact: {path}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.replace(path)
+
+
+def _propose_analysis(namespace: argparse.Namespace) -> int:
+    root = _root(namespace)
+    started = _now()
+    run_id = _run_id()
+    try:
+        events = ChangeEventStore(root).all()
+        proposals = build_analysis_proposals(
+            event for event in events if namespace.project_id is None or event.project_id == namespace.project_id
+        )
+        values = [proposal.to_dict() for proposal in proposals]
+        validator = SchemaValidator(root)
+        for value in values:
+            validator.validate("research-proposal.v1.json", value)
+        if namespace.output:
+            destination = Path(namespace.output)
+            if not destination.is_absolute():
+                destination = root / destination
+            _write_json_lines(destination, values)
+            print(destination)
+        else:
+            for value in values:
+                print(json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="propose-analysis",
+            started_at=started,
+            status="succeeded",
+            counts={"proposals": len(proposals)},
+            metadata={"project_id": namespace.project_id} if namespace.project_id else None,
+        )
+        return 0
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        print(f"propose-analysis failed: {exc}", file=sys.stderr)
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="propose-analysis",
+            started_at=started,
+            status="failed",
+            counts={},
+            errors=[str(exc)],
+        )
+        return 1
+
+
+def _context(namespace: argparse.Namespace):
+    return ContextStore(_root(namespace)).load(namespace.context_id) if namespace.context_id else None
+
+
+def _score(namespace: argparse.Namespace) -> int:
+    root = _root(namespace)
+    started = _now()
+    run_id = _run_id()
+    try:
+        context = _context(namespace)
+        evaluated_at = _timestamp(namespace.evaluated_at) if namespace.evaluated_at else None
+        card = ScoreEngine().score(
+            namespace.project_id,
+            ResearchEvidenceStore(root).all(),
+            context=context,
+            evaluated_at=evaluated_at,
+            input_version=namespace.input_version,
+        )
+        SchemaValidator(root).validate("score-card.v1.json", card.to_dict())
+        print(json.dumps(card.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="score",
+            started_at=started,
+            status="succeeded",
+            counts={"dimensions": len(card.dimensions), "complete": int(card.total_score is not None)},
+            metadata={
+                "project_id": namespace.project_id,
+                **({"context_id": namespace.context_id} if namespace.context_id else {}),
+            },
+        )
+        return 0
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        print(f"score failed: {exc}", file=sys.stderr)
+        _write_manifest(root, run_id=run_id, kind="score", started_at=started, status="failed", counts={}, errors=[str(exc)])
+        return 1
+
+
+def _report_input_version(evidence, *, cutoff_at: datetime) -> str:
+    versions = sorted({item.input_version for item in evidence if item.generated_at <= cutoff_at})
+    if not versions:
+        return "research:none"
+    if len(versions) == 1:
+        return versions[0]
+    import hashlib
+
+    return "research:" + hashlib.sha256("\n".join(versions).encode("utf-8")).hexdigest()[:16]
+
+
+def _report(namespace: argparse.Namespace) -> int:
+    root = _root(namespace)
+    started = _now()
+    run_id = _run_id()
+    try:
+        cutoff_at = _timestamp(namespace.cutoff_at)
+        projects = ProjectStore(root).all()
+        observations = ObservationStore(root).all()
+        evidence = ResearchEvidenceStore(root).all()
+        context = _context(namespace)
+        scorecards = [
+            ScoreEngine().score(
+                project.id,
+                evidence,
+                context=context,
+                evaluated_at=cutoff_at,
+                input_version=namespace.input_version,
+            )
+            for project in projects
+        ]
+        snapshot = ReportRenderer().render(
+            projects,
+            observations,
+            scorecards,
+            cutoff_at=cutoff_at,
+            input_version=namespace.input_version or _report_input_version(evidence, cutoff_at=cutoff_at),
+            report_type=namespace.report_type,
+            report_id=namespace.report_id,
+            score_version=namespace.score_version,
+            prompt_versions={
+                item.prompt_version
+                for item in evidence
+                if item.generated_at <= cutoff_at and item.prompt_version is not None
+            },
+            context_id=namespace.context_id,
+            context=context,
+        )
+        SchemaValidator(root).validate("report.v1.json", snapshot.to_dict())
+        if namespace.output:
+            destination = Path(namespace.output)
+            if not destination.is_absolute():
+                destination = root / destination
+            ReportStore(root).write_to(snapshot, destination)
+            print(destination)
+        else:
+            ReportStore(root).write(snapshot)
+            print(ReportStore(root).path_for(snapshot.report_id))
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="report",
+            started_at=started,
+            status="succeeded",
+            counts={"projects": len(projects), "reports": 1},
+            metadata={
+                "report_id": snapshot.report_id,
+                "input_version": snapshot.input_version,
+                **({"context_id": namespace.context_id} if namespace.context_id else {}),
+            },
+        )
+        return 0
+    except (DuplicateReportError, ValueError, FileNotFoundError, OSError) as exc:
+        print(f"report failed: {exc}", file=sys.stderr)
+        _write_manifest(root, run_id=run_id, kind="report", started_at=started, status="failed", counts={}, errors=[str(exc)])
+        return 1
+
+
 def _generate(namespace: argparse.Namespace) -> int:
     root = _root(namespace)
     started = _now()
@@ -399,6 +580,7 @@ def _validate(namespace: argparse.Namespace) -> int:
             except ValueError as exc:
                 errors.append(f"project {project.id}: {exc}")
         observations = observation_store.all()
+        observation_ids = {observation.event_id for observation in observations}
         errors.extend(f"observation integrity: {error}" for error in observation_store.integrity_errors())
         for observation in observations:
             try:
@@ -438,6 +620,50 @@ def _validate(namespace: argparse.Namespace) -> int:
                     errors.append(f"change event {event.change_id}: {exc}")
         except (ValueError, FileNotFoundError) as exc:
             errors.append(f"change event ledger: {exc}")
+        try:
+            contexts = ContextStore(root).all()
+            context_by_id = {context.context_id: context for context in contexts}
+            for context in contexts:
+                try:
+                    validator.validate("context.v1.json", context.to_dict())
+                    unknown_projects = sorted(set(context.project_ids) - set(project_by_id))
+                    if unknown_projects:
+                        raise ValueError(
+                            "context references unknown projects: " + ", ".join(unknown_projects)
+                        )
+                except ValueError as exc:
+                    errors.append(f"context {context.context_id}: {exc}")
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            context_by_id = {}
+            errors.append(f"context store: {exc}")
+        try:
+            evidence_store = ResearchEvidenceStore(root)
+            for evidence in evidence_store.all():
+                try:
+                    validator.validate("research-evidence.v1.json", evidence.to_dict())
+                    if evidence.project_id not in project_by_id:
+                        raise ValueError(f"research evidence references unknown project: {evidence.project_id}")
+                    if evidence.source_type == "observation" and evidence.source_ref not in observation_ids:
+                        raise ValueError(
+                            f"research evidence references unknown observation: {evidence.source_ref}"
+                        )
+                    if evidence.context_id is not None and evidence.context_id not in context_by_id:
+                        raise ValueError(f"research evidence references unknown context: {evidence.context_id}")
+                except ValueError as exc:
+                    errors.append(f"research evidence {evidence.evidence_id}: {exc}")
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            errors.append(f"research evidence ledger: {exc}")
+        try:
+            for report in ReportStore(root).all():
+                try:
+                    validator.validate("report.v1.json", report.to_dict())
+                    unknown_projects = sorted(set(report.project_ids) - set(project_by_id))
+                    if unknown_projects:
+                        raise ValueError(f"report references unknown projects: {', '.join(unknown_projects)}")
+                except ValueError as exc:
+                    errors.append(f"report {report.report_id}: {exc}")
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            errors.append(f"report store: {exc}")
         seen_run_ids: set[str] = set()
         for manifest_path in sorted((root / "data" / "runs").glob("*.jsonl")):
             if re.fullmatch(r"(?:19|20)[0-9]{2}-(?:0[1-9]|1[0-2])\.jsonl", manifest_path.name) is None:
@@ -528,6 +754,33 @@ def build_parser() -> argparse.ArgumentParser:
     detect_changes.add_argument("--root", default=argparse.SUPPRESS)
     detect_changes.add_argument("--project-id")
     detect_changes.set_defaults(handler=_detect_changes)
+
+    propose_analysis = subparsers.add_parser(
+        "propose-analysis", help="build review-only analysis proposals from change events"
+    )
+    propose_analysis.add_argument("--root", default=argparse.SUPPRESS)
+    propose_analysis.add_argument("--project-id")
+    propose_analysis.add_argument("--output", help="optional PR artifact path; never writes data/proposals")
+    propose_analysis.set_defaults(handler=_propose_analysis)
+
+    score = subparsers.add_parser("score", help="derive a score card from accepted research evidence")
+    score.add_argument("--root", default=argparse.SUPPRESS)
+    score.add_argument("--project-id", required=True)
+    score.add_argument("--context-id")
+    score.add_argument("--evaluated-at")
+    score.add_argument("--input-version")
+    score.set_defaults(handler=_score)
+
+    report = subparsers.add_parser("report", help="render and freeze a historical Markdown report")
+    report.add_argument("--root", default=argparse.SUPPRESS)
+    report.add_argument("--cutoff-at", required=True)
+    report.add_argument("--report-type", choices=["weekly", "monthly"], default="monthly")
+    report.add_argument("--report-id")
+    report.add_argument("--context-id")
+    report.add_argument("--input-version")
+    report.add_argument("--score-version", default="radar-score/1")
+    report.add_argument("--output", help="optional explicit Markdown path; default is reports/<report-id>.md")
+    report.set_defaults(handler=_report)
 
     generate = subparsers.add_parser("generate", help="render the deterministic README")
     generate.add_argument("--root", default=argparse.SUPPRESS)

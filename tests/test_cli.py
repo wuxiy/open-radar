@@ -17,6 +17,8 @@ from open_radar.storage import ObservationStore, ProjectStore
 from open_radar.admission_controls import DurableRateBudgetController, DurableReplayStore, RateBudgetPolicy
 from open_radar.admission_transactions import AdmissionTransaction, AdmissionTransactionStore
 from open_radar.change_detection import ChangeEventStore
+from open_radar.research import ResearchEvidence, ResearchEvidenceStore
+from open_radar.scoring import Context, ContextStore
 from datetime import datetime, timezone
 
 ROOT = Path(__file__).parents[1]
@@ -314,6 +316,83 @@ class CliTests(unittest.TestCase):
             entries = [json.loads(line) for line in manifests[0].read_text(encoding="utf-8").splitlines()]
             self.assertEqual(entries[-1]["kind"], "detect-changes")
             self.assertEqual(entries[-1]["counts"]["events_appended"], 0)
+            proposals = StringIO()
+            with redirect_stdout(proposals):
+                self.assertEqual(main(["propose-analysis", "--root", directory]), 0)
+            proposal = json.loads(proposals.getvalue().strip())
+            self.assertTrue(proposal["trigger_event_id"].startswith("change-"))
+            self.assertFalse((root / "data" / "proposals").exists())
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+
+    def test_propose_score_and_report_commands_are_offline_and_historical(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(ROOT / "data" / "taxonomy", root / "data" / "taxonomy")
+            shutil.copytree(ROOT / "schemas", root / "schemas")
+            ProjectStore(root).save(
+                Project.from_dict(
+                    {
+                        "schema_version": 1,
+                        "id": "radar-demo",
+                        "display_name": "Radar Demo",
+                        "aliases": [],
+                        "repositories": [{"provider": "github", "repository_id": 100000001, "owner": "example", "repo": "radar-demo", "role": "primary"}],
+                        "primary_category": "automation",
+                        "tags": ["automation"],
+                        "discovery_sources": [],
+                        "research_stage": "watching",
+                        "decision": "undecided",
+                        "tracking": "weekly",
+                    }
+                )
+            )
+            context = Context.from_dict(
+                {
+                    "schema_version": 1,
+                    "context_id": "open-scope",
+                    "name": "Open Scope",
+                    "goal": "Select useful tools.",
+                    "technical_questions": ["Does it fit?"],
+                    "priority": 4,
+                    "project_ids": ["radar-demo"],
+                }
+            )
+            ContextStore(root).save(context)
+            for dimension, rating in (("innovation", 8), ("engineering", 7), ("relevance", 9), ("activity", 6), ("learning_value", 10)):
+                value = {
+                    "schema_version": 1,
+                    "evidence_id": f"evidence-{dimension.replace('_', '-')}",
+                    "project_id": "radar-demo",
+                    "kind": "fact",
+                    "claim": f"{dimension} evidence",
+                    "reason": "Recorded for deterministic CLI tests.",
+                    "source_type": "snapshot",
+                    "source_ref": "run-1",
+                    "input_version": "snapshot-1",
+                    "generated_at": "2026-09-01T00:00:00Z",
+                    "confidence": 0.9,
+                    "dimension": dimension,
+                    "rating": rating,
+                }
+                if dimension == "relevance":
+                    value["context_id"] = "open-scope"
+                if dimension == "engineering":
+                    value["prompt_version"] = "research-prompt/1"
+                ResearchEvidenceStore(root).append(ResearchEvidence.from_dict(value))
+            output = StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(
+                    main(["score", "--root", directory, "--project-id", "radar-demo", "--context-id", "open-scope", "--evaluated-at", "2026-09-02T00:00:00Z"]),
+                    0,
+                )
+            self.assertIn('"total_score":80.5', output.getvalue())
+            self.assertEqual(
+                main(["report", "--root", directory, "--cutoff-at", "2026-09-02T00:00:00Z", "--context-id", "open-scope"]),
+                0,
+            )
+            self.assertTrue((root / "reports" / "report-monthly-2026-09.md").is_file())
+            report_metadata = json.loads((root / "reports" / "report-monthly-2026-09.json").read_text(encoding="utf-8"))
+            self.assertEqual(report_metadata["prompt_versions"], ["research-prompt/1"])
             self.assertEqual(main(["validate", "--root", directory]), 0)
 
 

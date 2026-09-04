@@ -36,6 +36,16 @@
 - [x] 实现确定性字段比较、未知值跳过和活动指标显著性阈值。
 - [x] 实现指纹幂等的变更事件账本、批量预校验和 `detect-changes` CLI。
 - [x] 接入 Publisher/validate 的 Schema 与项目仓库引用检查。
-- [ ] Provider `fetch_changes`、分析提案、研究证据、评分/上下文和报告仍待后续迭代。
+- [x] 由确定性变更事件生成指纹幂等的 review-only `AnalysisProposal`，不落主分支提案目录。
 
-**V0.2 首个切片完成** - 事件检测与持久化已在离线环境验证；本轮不生成 LLM 分析提案，也不执行远程写入。
+## V0.2.1 研究、评分与历史报告
+
+- [x] 冻结研究提案/证据 Schema，研究记录区分事实、推断、观点并绑定来源与输入版本。
+- [x] 接入追加式研究证据账本、私人 Context、五维 RadarScore 和缺维度缺失总分规则。
+- [x] 接入 cutoff/input/score/Prompt 版本化的 write-once 历史报告。
+- [x] 接入 `propose-analysis`、`score`、`report` CLI、Schema 与跨文件验证。
+- [x] 运行离线全量测试并完成双轴代码审查后提交。
+
+**状态**：实现、审查与离线验证完成；Provider `fetch_changes`、LLM、关系和远程写入仍在范围外。
+
+**V0.2.1 首个分析切片完成** - 事件提案、证据、评分和历史报告已在离线环境验证；本轮不执行 LLM 或远程写入。

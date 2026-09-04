@@ -177,4 +177,16 @@
 - [x] 对已知 facts/metrics 执行确定性相邻比较；未知值不推断，活动指标使用显著性阈值。
 - [x] 持久化变更事件并按指纹幂等，批次先校验再追加，避免重复分析提案。
 - [x] 增加 `open-radar detect-changes` CLI 和运行清单校验。
-- [ ] 后续接入 Provider `fetch_changes`、研究提案、评分/上下文和报告生成。
+- [x] 由确定性变更事件生成指纹幂等的 review-only `AnalysisProposal`，不落主分支提案目录。
+
+## V0.2.1 研究、评分与历史报告
+
+- [x] 冻结 `research-proposal.v1.json` 与 `research-evidence.v1.json`，区分 fact/inference/opinion 并绑定来源、输入版本和置信度。
+- [x] 追加式 `research/evidence.jsonl` 幂等存储；研究证据不写回项目 YAML。
+- [x] 实现 `data/contexts/<id>.yaml` 私人上下文契约与存储，评分不改变项目三维状态。
+- [x] 实现版本化五维 RadarScore；缺维度时总分缺失，不补零或重分配权重。
+- [x] 实现带 cutoff/input/score/Prompt 版本的 write-once 历史报告及 `reports/` 元数据。
+- [x] 接入 `propose-analysis`、`score`、`report` CLI 和 `validate` 跨文件引用检查。
+- [x] 离线测试覆盖提案、证据、上下文、评分、报告固定性和重复写入。
+
+边界：本轮不接入 Provider `fetch_changes`、LLM 执行、关系图、远程 GitHub 写入或自动修改人工知识。

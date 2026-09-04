@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/research-proposal.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "proposal_id", "fingerprint", "project_id", "provider",
+    "repository_id", "trigger_event_id", "trigger_fingerprint", "requested_at",
+    "question", "scope", "status", "rule_version"
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "proposal_id": {"type": "string", "pattern": "^proposal-[0-9a-f]{24}$"},
+    "fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "provider": {"type": "string", "minLength": 1},
+    "repository_id": {"type": "integer", "minimum": 1},
+    "trigger_event_id": {"type": "string", "pattern": "^change-[0-9a-f]{24}$"},
+    "trigger_fingerprint": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "requested_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "question": {"type": "string", "minLength": 1},
+    "scope": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true},
+    "status": {"enum": ["pending", "in_review", "accepted", "rejected"]},
+    "rule_version": {"const": "proposal-rules/1"}
+  }
+}

@@ -7,7 +7,7 @@
   "properties": {
     "schema_version": {"const": 1},
     "run_id": {"type": "string", "minLength": 1},
-    "kind": {"enum": ["ingest", "collect", "detect-changes", "generate", "validate"]},
+    "kind": {"enum": ["ingest", "collect", "detect-changes", "propose-analysis", "score", "report", "generate", "validate"]},
     "started_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "finished_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
     "status": {"enum": ["started", "succeeded", "partial", "pending", "failed"]},
@@ -24,7 +24,10 @@
         "requester": {"type": "string", "minLength": 1},
         "source_url": {"type": ["string", "null"]},
         "comment_preview": {"type": ["string", "null"], "maxLength": 512},
-        "comment_truncated": {"type": "boolean"}
+        "comment_truncated": {"type": "boolean"},
+        "context_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+        "report_id": {"type": "string", "pattern": "^report-[a-z0-9][a-z0-9-]*$"},
+        "input_version": {"type": "string", "minLength": 1}
       }
     }
   }

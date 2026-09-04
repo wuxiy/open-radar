@@ -123,6 +123,87 @@ class SchemaTests(unittest.TestCase):
         )
         validator.validate("admission-transaction.v1.json", transaction.to_dict())
 
+    def test_v02_research_scoring_and_report_contracts_validate(self):
+        validator = SchemaValidator(ROOT)
+        validator.validate(
+            "research-proposal.v1.json",
+            {
+                "schema_version": 1,
+                "proposal_id": "proposal-" + "0" * 24,
+                "fingerprint": "0" * 64,
+                "project_id": "radar-demo",
+                "provider": "github",
+                "repository_id": 100000001,
+                "trigger_event_id": "change-" + "2" * 24,
+                "trigger_fingerprint": "1" * 64,
+                "requested_at": "2026-09-04T00:00:00Z",
+                "question": "Assess this change.",
+                "scope": ["repository-metadata", "facts"],
+                "status": "pending",
+                "rule_version": "proposal-rules/1",
+            },
+        )
+        validator.validate(
+            "research-evidence.v1.json",
+            {
+                "schema_version": 1,
+                "evidence_id": "evidence-engineering",
+                "project_id": "radar-demo",
+                "kind": "fact",
+                "claim": "The repository has tests.",
+                "reason": "The checked repository metadata and test tree show a maintained test suite.",
+                "source_type": "url",
+                "source_ref": "https://github.com/example/radar-demo",
+                "input_version": "commit:abc123",
+                "generated_at": "2026-09-04T00:00:00Z",
+                "confidence": 0.9,
+                "dimension": "engineering",
+                "rating": 8,
+            },
+        )
+        validator.validate(
+            "context.v1.json",
+            {
+                "schema_version": 1,
+                "context_id": "open-scope",
+                "name": "Open Scope",
+                "goal": "Select useful tools.",
+                "technical_questions": ["Does it fit?"],
+                "priority": 4,
+            },
+        )
+        validator.validate(
+            "score-card.v1.json",
+            {
+                "schema_version": 1,
+                "project_id": "radar-demo",
+                "context_id": None,
+                "score_version": "radar-score/1",
+                "input_version": "snapshot-1",
+                "evaluated_at": "2026-09-04T00:00:00Z",
+                "dimensions": {},
+                "total_score": None,
+            },
+        )
+        validator.validate(
+            "report.v1.json",
+            {
+                "schema_version": 1,
+                "report_id": "report-monthly-2026-09",
+                "report_type": "monthly",
+                "cutoff_at": "2026-09-04T00:00:00Z",
+                "generated_at": "2026-09-04T00:00:00Z",
+                "input_version": "snapshot-1",
+                "input_digest": "1" * 64,
+                "score_version": "radar-score/1",
+                "prompt_versions": [],
+                "project_ids": ["radar-demo"],
+                "context_id": None,
+                "content": "# Report\n",
+                "content_sha256": "0" * 64,
+            },
+        )
+
     def test_unknown_fields_are_rejected(self):
         validator = SchemaValidator(ROOT)
         invalid = dict(PROJECT)

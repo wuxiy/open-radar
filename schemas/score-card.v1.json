@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/score-card.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project_id", "context_id", "score_version", "input_version", "evaluated_at", "dimensions", "total_score"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "project_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "context_id": {"type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "score_version": {"const": "radar-score/1"},
+    "input_version": {"type": "string", "minLength": 1},
+    "evaluated_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "dimensions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dimension", "rating", "reason", "evidence_ids", "confidence", "input_version"],
+        "properties": {
+          "dimension": {"enum": ["innovation", "engineering", "relevance", "activity", "learning_value"]},
+          "rating": {"type": "number", "minimum": 0, "maximum": 10},
+          "reason": {"type": "string", "minLength": 1},
+          "evidence_ids": {"type": "array", "items": {"type": "string", "pattern": "^evidence-[a-z0-9][a-z0-9-]*$"}, "minItems": 1, "uniqueItems": true},
+          "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+          "input_version": {"type": "string", "minLength": 1}
+        }
+      },
+      "propertyNames": {"enum": ["innovation", "engineering", "relevance", "activity", "learning_value"]}
+    },
+    "total_score": {"type": ["number", "null"], "minimum": 0, "maximum": 100}
+  }
+}

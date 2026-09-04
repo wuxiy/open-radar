@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/report.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "report_id", "report_type", "cutoff_at", "generated_at", "input_version", "input_digest", "score_version", "prompt_versions", "project_ids", "context_id", "content", "content_sha256"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "report_id": {"type": "string", "pattern": "^report-[a-z0-9][a-z0-9-]*$"},
+    "report_type": {"enum": ["weekly", "monthly"]},
+    "cutoff_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "generated_at": {"type": "string", "format": "date-time", "pattern": "Z$"},
+    "input_version": {"type": "string", "minLength": 1},
+    "input_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "score_version": {"type": "string", "minLength": 1},
+    "prompt_versions": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "project_ids": {"type": "array", "items": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}, "uniqueItems": true},
+    "context_id": {"type": ["string", "null"], "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "content": {"type": "string", "minLength": 1},
+    "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
