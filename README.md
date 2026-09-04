@@ -33,6 +33,8 @@ open-radar ingest \
 Add `--write` only after an authorized request has passed review. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities.
 
 ```bash
+export OPEN_RADAR_TRUSTED_USERS=maintainer
+
 open-radar ingest \
   https://github.com/example-org/radar-demo \
   --write \
