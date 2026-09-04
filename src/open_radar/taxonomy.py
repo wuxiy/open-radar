@@ -24,7 +24,10 @@ class Taxonomy:
             path = root / "data" / "taxonomy" / f"{kind}.yaml"
             if not path.is_file():
                 raise FileNotFoundError(path)
-            payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+            try:
+                payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+                raise ValidationError(f"{path}: invalid taxonomy YAML") from exc
             schema.validate("taxonomy.v1.json", payload)
             if payload["kind"] != kind:
                 raise ValueError(f"taxonomy file kind mismatch: {path}")

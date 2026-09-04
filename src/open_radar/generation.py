@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from importlib.resources import files
 from pathlib import Path
 
 from jinja2 import Environment, StrictUndefined
@@ -64,9 +65,17 @@ def render_readme(
             }
         )
     if template_path is None:
-        template_path = Path(__file__).resolve().parents[2] / "templates" / "README.md.j2"
+        checkout_template = Path(__file__).resolve().parents[2] / "templates" / "README.md.j2"
+        if checkout_template.is_file():
+            template_text = checkout_template.read_text(encoding="utf-8")
+        else:
+            template_text = files("open_radar").joinpath(
+                "templates", "README.md.j2"
+            ).read_text(encoding="utf-8")
+    else:
+        template_text = Path(template_path).read_text(encoding="utf-8")
     template = Environment(undefined=StrictUndefined, autoescape=False, keep_trailing_newline=True).from_string(
-        Path(template_path).read_text(encoding="utf-8")
+        template_text
     )
     return template.render(projects=rows)
 

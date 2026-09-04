@@ -190,3 +190,14 @@
 - [x] 离线测试覆盖提案、证据、上下文、评分、报告固定性和重复写入。
 
 边界：本轮不接入 Provider `fetch_changes`、LLM 执行、关系图、远程 GitHub 写入或自动修改人工知识。
+
+## V0.2.2 可用性硬化（本轮）
+
+- [x] 生产模式禁止默认离线 PR fake；`ingest --write` 在缺少真实适配器时不得推进事务或消费 replay。
+- [x] 运行清单按 `run_id` 幂等写入，校验命令默认只读，并覆盖重试边界。
+- [x] YAML/UTF-8/IO 损坏输入统一转换为稳定 CLI 错误，不输出 traceback。
+- [x] `score`、`detect-changes`、`propose-analysis` 对未知项目返回失败。
+- [x] Wheel 包含 README 模板等运行时资源，安装环境可运行 CLI。
+- [x] 权威合并事实约束与回归测试保持有效；远程私有化、分支保护、签名和真实 E2E 继续作为外部门禁，不在本轮直接操作。
+
+验证证据（2026-09-05）：`unittest discover -s tests -q` 通过 122 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过；解包后的 0.2.2 wheel 通过完整测试并可从 `open_radar/templates/README.md.j2` 渲染 README。

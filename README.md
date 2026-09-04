@@ -2,7 +2,7 @@
 
 Open Radar keeps a small, Git-backed catalog of open-source projects and their public GitHub observations. Project metadata lives in reviewed YAML files. Machine observations append to monthly JSONL logs. A deterministic generator turns the current data into Markdown.
 
-The repository contains the V0.1 local core plus offline-safe admission, publishing, and the V0.2.1 Change Intelligence slice. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
+The repository contains the V0.1 local core, offline-safe admission and publishing, the V0.2.1 Change Intelligence slice, and V0.2.2 availability hardening. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
 
 ## Install
 
@@ -30,7 +30,7 @@ open-radar ingest \
   --discovered-at 2026-09-03T00:00:00Z
 ```
 
-Add `--write` only for an authorized request when you want the local transaction/PR plan recorded. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities. It deliberately fails closed before writing project YAML because a CLI flag cannot establish authoritative merge facts.
+Add `--write` only for an authorized request when you want the local transaction/PR plan recorded. The command resolves the GitHub repository, records its stable repository ID, checks the controlled taxonomy, and rejects duplicate repository identities. Production writes require an explicitly injected live admission PR adapter; without one, the command fails closed before creating a transaction or consuming replay state. It also fails closed before writing project YAML because a CLI flag cannot establish authoritative merge facts.
 
 ```bash
 export OPEN_RADAR_TRUSTED_USERS=maintainer
@@ -61,7 +61,7 @@ GITHUB_TOKEN=... open-radar collect \
   --scheduled-at 2026-09-03T00:00:00Z
 ```
 
-The collector honors each project's `tracking` value, skips `off`, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes a run manifest under `data/runs/YYYY-MM.jsonl`.
+The collector honors each project's `tracking` value, skips `off`, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes one idempotent run manifest per `run_id` under `data/runs/YYYY-MM.jsonl`.
 
 Regenerate a Markdown view from the checked-in data:
 
@@ -76,6 +76,8 @@ Validate project YAML, observation logs, taxonomy, run manifests, correction cha
 ```bash
 open-radar validate
 ```
+
+`validate` is read-only by default. Add `--record-run` only when you explicitly want its compact run manifest persisted.
 
 Derive deterministic Change Intelligence events from adjacent observation history:
 

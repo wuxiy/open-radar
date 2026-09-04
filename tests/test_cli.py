@@ -1,4 +1,4 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 import json
 from pathlib import Path
@@ -18,6 +18,7 @@ from open_radar.admission_controls import DurableRateBudgetController, DurableRe
 from open_radar.admission_transactions import AdmissionTransaction, AdmissionTransactionStore
 from open_radar.change_detection import ChangeEventStore
 from open_radar.research import ResearchEvidence, ResearchEvidenceStore
+from open_radar.run_manifests import RunManifestStore
 from open_radar.scoring import Context, ContextStore
 from datetime import datetime, timezone
 
@@ -45,6 +46,12 @@ class FakeClient:
 
 
 class CliTests(unittest.TestCase):
+    def _empty_checkout(self, directory):
+        root = Path(directory)
+        shutil.copytree(ROOT / "data" / "taxonomy", root / "data" / "taxonomy")
+        shutil.copytree(ROOT / "schemas", root / "schemas")
+        return root
+
     def test_ingest_prints_candidate_without_writing_by_default(self):
         with TemporaryDirectory() as directory:
             shutil.copytree(ROOT / "data" / "taxonomy", Path(directory) / "data" / "taxonomy")
@@ -116,6 +123,34 @@ class CliTests(unittest.TestCase):
                     1,
                 )
             self.assertFalse((root / "data" / "projects" / "radar-demo.yaml").exists())
+
+    def test_ingest_write_missing_live_adapter_does_not_create_pr_transaction(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            with patch("open_radar.cli.GitHubApiClient", return_value=FakeClient()), patch.dict(
+                os.environ, {"OPEN_RADAR_TRUSTED_USERS": "maintainer"}, clear=False
+            ):
+                result = main(
+                    [
+                        "ingest",
+                        "https://github.com/example-org/radar-demo",
+                        "--root",
+                        directory,
+                        "--write",
+                        "--request-id",
+                        "issue-42",
+                        "--requester",
+                        "maintainer",
+                        "--intake-repository-id",
+                        "987654321",
+                        "--issue-number",
+                        "42",
+                        "--discovered-at",
+                        "2026-09-04T00:00:00Z",
+                    ]
+                )
+            self.assertEqual(result, 1)
+            self.assertFalse(list((root / "data" / "runs" / "admission-transactions").glob("*.jsonl")))
 
     def test_ingest_write_rejects_untrusted_request_without_traceback(self):
         with TemporaryDirectory() as directory:
@@ -190,6 +225,173 @@ class CliTests(unittest.TestCase):
             self.assertEqual(main(["generate", "--root", directory, "--force"]), 0)
             self.assertTrue((root / "README.md").is_file())
             self.assertEqual(main(["validate", "--root", directory]), 0)
+
+    def test_validate_is_read_only_by_default(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+            self.assertFalse(list((root / "data" / "runs").glob("*.jsonl")))
+
+    def test_validate_reports_malformed_project_yaml_without_traceback(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            projects = root / "data" / "projects"
+            projects.mkdir(parents=True, exist_ok=True)
+            (projects / "broken.yaml").write_text("id: [broken\n", encoding="utf-8")
+            errors = StringIO()
+            with redirect_stderr(errors):
+                self.assertEqual(main(["validate", "--root", directory]), 1)
+            self.assertIn("invalid project YAML", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_validate_reports_unreadable_observation_log_without_traceback(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            observations = root / "data" / "observations" / "github"
+            observations.mkdir(parents=True)
+            (observations / "2026-09.jsonl").write_bytes(b"\xff\n")
+            errors = StringIO()
+            with redirect_stderr(errors):
+                self.assertEqual(main(["validate", "--root", directory]), 1)
+            self.assertIn("unreadable observation log", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_validate_records_manifest_only_when_requested(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+            self.assertFalse(list((root / "data" / "runs").glob("*.jsonl")))
+            self.assertEqual(main(["validate", "--root", directory, "--record-run"]), 0)
+            manifests = list((root / "data" / "runs").glob("*.jsonl"))
+            self.assertEqual(len(manifests), 1)
+            self.assertEqual(json.loads(manifests[0].read_text(encoding="utf-8").splitlines()[0])["kind"], "validate")
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+
+    def test_validate_does_not_create_transaction_lock(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            transaction_directory = root / "data" / "runs" / "admission-transactions"
+            transaction_directory.mkdir(parents=True)
+            lock_path = transaction_directory / ".write.lock"
+            self.assertFalse(lock_path.exists())
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+            self.assertFalse(lock_path.exists())
+
+    def test_generate_reports_io_error_without_traceback(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            output_directory = root / "generated"
+            output_directory.mkdir()
+            errors = StringIO()
+            with redirect_stderr(errors):
+                self.assertEqual(
+                    main(
+                        [
+                            "generate",
+                            "--root",
+                            directory,
+                            "--output",
+                            "generated",
+                            "--force",
+                        ]
+                    ),
+                    1,
+                )
+            self.assertIn("generate failed", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_collect_run_id_replay_is_idempotent(self):
+        with TemporaryDirectory() as directory:
+            self._empty_checkout(directory)
+            args = [
+                "collect",
+                "--root",
+                directory,
+                "--run-id",
+                "retry-1",
+                "--scheduled-at",
+                "2026-09-05T00:00:00Z",
+            ]
+            self.assertEqual(main(args), 0)
+            self.assertEqual(main(args), 0)
+            self.assertEqual(main(["validate", "--root", directory]), 0)
+            manifests = list((Path(directory) / "data" / "runs").glob("*.jsonl"))
+            entries = [
+                json.loads(line)
+                for path in manifests
+                for line in path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            self.assertEqual(sum(entry["run_id"] == "retry-1" for entry in entries), 1)
+
+    def test_run_manifest_replay_ignores_timestamp_but_rejects_conflict(self):
+        with TemporaryDirectory() as directory:
+            store = RunManifestStore(Path(directory))
+            with self.assertRaisesRegex(ValueError, "kind"):
+                store.append({"schema_version": 1, "run_id": "invalid"})
+            manifest = {
+                "schema_version": 1,
+                "run_id": "run-1",
+                "kind": "collect",
+                "started_at": "2026-09-05T00:00:00Z",
+                "status": "succeeded",
+                "counts": {"observations_appended": 0},
+            }
+            self.assertTrue(store.append(manifest))
+            replay = dict(manifest, started_at="2026-09-05T00:01:00Z")
+            self.assertFalse(store.append(replay))
+            with self.assertRaisesRegex(ValueError, "different manifest"):
+                store.append(dict(replay, counts={"observations_appended": 1}))
+
+    def test_run_manifest_rejects_unreadable_existing_log(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            runs = root / "data" / "runs"
+            runs.mkdir(parents=True)
+            (runs / "2026-09.jsonl").write_bytes(b"\xff\n")
+            with self.assertRaisesRegex(ValueError, "unreadable"):
+                RunManifestStore(root).append(
+                    {
+                        "schema_version": 1,
+                        "run_id": "run-1",
+                        "kind": "collect",
+                        "started_at": "2026-09-05T00:00:00Z",
+                        "status": "succeeded",
+                        "counts": {},
+                    }
+                )
+
+    def test_cli_reports_manifest_write_failure_without_traceback(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            runs = root / "data" / "runs"
+            runs.mkdir(parents=True)
+            (runs / "2026-09.jsonl").write_bytes(b"\xff\n")
+            errors = StringIO()
+            with redirect_stderr(errors):
+                self.assertEqual(main(["collect", "--root", directory]), 1)
+            self.assertIn("unable to record run manifest", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+
+    def test_score_rejects_unknown_project(self):
+        with TemporaryDirectory() as directory:
+            self._empty_checkout(directory)
+            self.assertEqual(
+                main(["score", "--root", directory, "--project-id", "missing-project"]),
+                1,
+            )
+
+    def test_analysis_commands_reject_unknown_project(self):
+        with TemporaryDirectory() as directory:
+            self._empty_checkout(directory)
+            self.assertEqual(
+                main(["detect-changes", "--root", directory, "--project-id", "missing-project"]),
+                1,
+            )
+            self.assertEqual(
+                main(["propose-analysis", "--root", directory, "--project-id", "missing-project"]),
+                1,
+            )
 
     def test_validate_rejects_observation_for_unknown_project(self):
         with TemporaryDirectory() as directory:

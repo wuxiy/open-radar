@@ -180,10 +180,16 @@ class AdmissionWorkflow:
         self.service = service
         self.policy = policy
         self.transactions = transactions
-        self.pr_client = pr_client or DeterministicAdmissionPRClient()
-        self.guard = guard
         if not isinstance(allow_uncontrolled, bool):
             raise ValueError("allow_uncontrolled must be boolean")
+        if pr_client is None:
+            if not allow_uncontrolled:
+                raise PullRequestError(
+                    "a live admission PR client is required outside offline test mode"
+                )
+            pr_client = DeterministicAdmissionPRClient()
+        self.pr_client = pr_client
+        self.guard = guard
         self.allow_uncontrolled = allow_uncontrolled
 
     def prepare(

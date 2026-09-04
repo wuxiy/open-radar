@@ -403,7 +403,11 @@ class ResearchEvidenceStore:
             return []
         evidence: list[ResearchEvidence] = []
         seen: set[str] = set()
-        for line_number, line in enumerate(self.path.read_text(encoding="utf-8").splitlines(), start=1):
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"{self.path}: unreadable research evidence log") from exc
+        for line_number, line in enumerate(lines, start=1):
             if not line.strip():
                 continue
             try:

@@ -250,10 +250,34 @@ class AdmissionTransactionStore:
             finally:
                 lock_file.close()
 
+    @contextmanager
+    def _read_locked(self) -> Iterator[None]:
+        """Take a shared lock without creating a lock file during reads."""
+        if not self.lock_path.exists():
+            yield
+            return
+        lock_file = self.lock_path.open("r", encoding="utf-8")
+        try:
+            import fcntl
+
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_SH)
+            yield
+        finally:
+            try:
+                import fcntl
+
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            finally:
+                lock_file.close()
+
     def _records(self) -> list[AdmissionTransaction]:
         records: list[AdmissionTransaction] = []
         for path in sorted(self.directory.glob("*.jsonl")):
-            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError) as exc:
+                raise AdmissionTransactionError(f"{path}: unreadable transaction log") from exc
+            for line_number, line in enumerate(lines, start=1):
                 if not line.strip():
                     continue
                 try:
@@ -276,11 +300,11 @@ class AdmissionTransactionStore:
 
     def get(self, idempotency_key: str) -> AdmissionTransaction | None:
         key = _text(idempotency_key, "idempotency_key")
-        with self._locked():
+        with self._read_locked():
             return self._current(self._records()).get(key)
 
     def all(self) -> list[AdmissionTransaction]:
-        with self._locked():
+        with self._read_locked():
             return sorted(
                 self._current(self._records()).values(), key=lambda item: item.idempotency_key
             )

@@ -25,6 +25,7 @@ from open_radar.workflows.admission_pr import (
     DeterministicAdmissionPRClient,
     MergeReconciliationError,
     MergedPullRequest,
+    PullRequestError,
 )
 from open_radar.workflows.collection import CollectionService
 from open_radar.generation import render_readme
@@ -62,6 +63,27 @@ class StaticPullRequestProvider:
 
 
 class AdmissionPrE2ETests(unittest.TestCase):
+    def test_production_workflow_requires_explicit_pr_client(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            service = AdmissionService(
+                GitHubProvider(FakeClient()), ProjectStore(root),
+                Taxonomy({"uncategorized", "automation"}, {"automation"}),
+            )
+            with self.assertRaises(PullRequestError):
+                AdmissionWorkflow(
+                    service,
+                    AuthorizationPolicy(trusted_users={"contributor"}),
+                    AdmissionTransactionStore(root),
+                    guard=AdmissionGuard(
+                        AuthorizationPolicy(trusted_users={"contributor"}),
+                        DurableRateBudgetController(
+                            root,
+                            RateBudgetPolicy(max_requests=2, max_budget_units=2),
+                        ),
+                    ),
+                )
+
     def event(self, replay_store=None, delivery_id="delivery-42"):
         payload = {
             "action": "opened",
@@ -105,6 +127,7 @@ class AdmissionPrE2ETests(unittest.TestCase):
                         RateBudgetPolicy(max_requests=2, max_budget_units=2),
                     ),
                 ),
+                pr_client=DeterministicAdmissionPRClient(),
             )
             replay_store = DurableReplayStore(root)
             preparation = workflow.prepare(self.event(replay_store))
@@ -241,6 +264,7 @@ class AdmissionPrE2ETests(unittest.TestCase):
                 service,
                 AuthorizationPolicy(trusted_users={"contributor"}),
                 AdmissionTransactionStore(root),
+                pr_client=DeterministicAdmissionPRClient(),
                 allow_uncontrolled=True,
             )
             preparation = workflow.prepare(self.event())
@@ -267,6 +291,7 @@ class AdmissionPrE2ETests(unittest.TestCase):
                 service,
                 AuthorizationPolicy(trusted_users={"contributor"}),
                 AdmissionTransactionStore(root),
+                pr_client=DeterministicAdmissionPRClient(),
                 allow_uncontrolled=True,
             )
             preparation = workflow.prepare(self.event())
@@ -295,6 +320,7 @@ class AdmissionPrE2ETests(unittest.TestCase):
                 service,
                 AuthorizationPolicy(trusted_users={"contributor"}),
                 transactions,
+                pr_client=DeterministicAdmissionPRClient(),
                 allow_uncontrolled=True,
             )
             preparation = workflow.prepare(self.event())

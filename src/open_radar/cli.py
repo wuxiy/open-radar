@@ -32,6 +32,7 @@ from .github_provider import GitHubApiClient, GitHubProvider, GitHubProviderErro
 from .generation import render_readme, write_readme
 from .reporting import DuplicateReportError, ReportRenderer, ReportStore
 from .research import ResearchEvidenceStore, build_analysis_proposals
+from .run_manifests import RunManifestStore
 from .scoring import ContextStore, ScoreEngine
 from .storage import ObservationStore, ProjectStore
 from .taxonomy import Taxonomy
@@ -48,6 +49,10 @@ from .workflows.admission_pr import (
     PullRequestError,
 )
 from .workflows.collection import CollectionService
+
+
+class RunManifestError(RuntimeError):
+    """Raised when a command cannot durably record its run outcome."""
 
 
 def _timestamp(value: str | None) -> datetime:
@@ -88,9 +93,7 @@ def _write_manifest(
     counts: dict[str, int],
     errors: list[str] | None = None,
     metadata: dict[str, object] | None = None,
-) -> None:
-    destination = root / "data" / "runs" / f"{started_at:%Y-%m}.jsonl"
-    destination.parent.mkdir(parents=True, exist_ok=True)
+) -> bool:
     payload = {
         "schema_version": 1,
         "run_id": run_id,
@@ -104,8 +107,10 @@ def _write_manifest(
         payload["errors"] = errors
     if metadata:
         payload["metadata"] = metadata
-    with destination.open("a", encoding="utf-8") as stream:
-        stream.write(json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
+    try:
+        return RunManifestStore(root).append(payload)
+    except (OSError, ValueError) as exc:
+        raise RunManifestError(f"unable to record run manifest: {exc}") from exc
 
 
 def _root(namespace: argparse.Namespace) -> Path:
@@ -116,6 +121,13 @@ def _provider(namespace: argparse.Namespace) -> GitHubProvider:
     return GitHubProvider(
         GitHubApiClient(token=namespace.token or os.environ.get("GITHUB_TOKEN"))
     )
+
+
+def _require_project(root: Path, project_id: str) -> None:
+    try:
+        ProjectStore(root).load(project_id)
+    except FileNotFoundError as exc:
+        raise ValueError(f"project does not exist: {project_id}") from exc
 
 
 def _ingest(namespace: argparse.Namespace) -> int:
@@ -162,6 +174,10 @@ def _ingest(namespace: argparse.Namespace) -> int:
             }
             policy = AuthorizationPolicy(trusted_users=trusted_users)
             if namespace.write:
+                # Resolve authorization before constructing the live-only
+                # workflow, so pending requests remain pending rather than
+                # failing on adapter configuration.
+                policy.require_authorized(request)
                 rate_budget = DurableRateBudgetController(
                     root,
                     RateBudgetPolicy(
@@ -311,6 +327,8 @@ def _detect_changes(namespace: argparse.Namespace) -> int:
     started = _now()
     run_id = _run_id()
     try:
+        if namespace.project_id:
+            _require_project(root, namespace.project_id)
         observations = ObservationStore(root).all()
         detected = ChangeDetector().detect(
             observations,
@@ -367,6 +385,8 @@ def _propose_analysis(namespace: argparse.Namespace) -> int:
     started = _now()
     run_id = _run_id()
     try:
+        if namespace.project_id:
+            _require_project(root, namespace.project_id)
         events = ChangeEventStore(root).all()
         proposals = build_analysis_proposals(
             event for event in events if namespace.project_id is None or event.project_id == namespace.project_id
@@ -417,6 +437,7 @@ def _score(namespace: argparse.Namespace) -> int:
     started = _now()
     run_id = _run_id()
     try:
+        _require_project(root, namespace.project_id)
         context = _context(namespace)
         evaluated_at = _timestamp(namespace.evaluated_at) if namespace.evaluated_at else None
         card = ScoreEngine().score(
@@ -546,7 +567,7 @@ def _generate(namespace: argparse.Namespace) -> int:
         print(destination)
         _write_manifest(root, run_id=run_id, kind="generate", started_at=started, status="succeeded", counts={"projects": len(projects.all())})
         return 0
-    except (ValueError, FileNotFoundError, FileExistsError) as exc:
+    except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
         print(f"generate failed: {exc}", file=sys.stderr)
         _write_manifest(root, run_id=run_id, kind="generate", started_at=started, status="failed", counts={}, errors=[str(exc)])
         return 1
@@ -700,15 +721,17 @@ def _validate(namespace: argparse.Namespace) -> int:
             )._records()
         except (ValueError, OSError) as exc:
             errors.append(f"rate/budget ledger: {exc}")
-    except (ValueError, FileNotFoundError) as exc:
+    except (ValueError, FileNotFoundError, OSError) as exc:
         errors.append(str(exc))
     if errors:
         for error in errors:
             print(error, file=sys.stderr)
-        _write_manifest(root, run_id=run_id, kind="validate", started_at=started, status="failed", counts={"errors": len(errors)}, errors=errors)
+        if namespace.record_run:
+            _write_manifest(root, run_id=run_id, kind="validate", started_at=started, status="failed", counts={"errors": len(errors)}, errors=errors)
         return 1
     print("validation ok")
-    _write_manifest(root, run_id=run_id, kind="validate", started_at=started, status="succeeded", counts={"errors": 0})
+    if namespace.record_run:
+        _write_manifest(root, run_id=run_id, kind="validate", started_at=started, status="succeeded", counts={"errors": 0})
     return 0
 
 
@@ -790,13 +813,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate = subparsers.add_parser("validate", help="validate projects, observations, and taxonomy")
     validate.add_argument("--root", default=argparse.SUPPRESS)
+    validate.add_argument("--record-run", action="store_true", help="persist a validation run manifest")
     validate.set_defaults(handler=_validate)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     namespace = build_parser().parse_args(argv)
-    return namespace.handler(namespace)
+    try:
+        return namespace.handler(namespace)
+    except RunManifestError as exc:
+        print(f"{namespace.command} failed: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

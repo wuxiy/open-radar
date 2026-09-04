@@ -118,9 +118,11 @@ class DurableReplayStore:
         if not self.path.exists():
             return []
         result: list[dict[str, object]] = []
-        for line_number, line in enumerate(
-            self.path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"replay ledger {self.path} is unreadable") from exc
+        for line_number, line in enumerate(lines, start=1):
             if not line.strip():
                 continue
             try:
@@ -439,9 +441,11 @@ class DurableRateBudgetController:
         if not self.path.exists():
             return []
         records: list[dict[str, object]] = []
-        for line_number, line in enumerate(
-            self.path.read_text(encoding="utf-8").splitlines(), start=1
-        ):
+        try:
+            lines = self.path.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ValueError(f"usage ledger {self.path} is unreadable") from exc
+        for line_number, line in enumerate(lines, start=1):
             if not line.strip():
                 continue
             try:

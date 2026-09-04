@@ -86,13 +86,20 @@ class ProjectStore:
         path = self.directory / f"{project_id}.yaml"
         if not path.is_file():
             raise FileNotFoundError(path)
-        data = yaml.safe_load(path.read_text(encoding="utf-8"))
-        return Project.from_dict(data)
+        try:
+            data = yaml.safe_load(path.read_text(encoding="utf-8"))
+            return Project.from_dict(data)
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError) as exc:
+            raise ValidationError(f"{path}: invalid project YAML") from exc
 
     def all(self) -> list[Project]:
         projects = []
         for path in sorted(self.directory.glob("*.yaml")):
-            projects.append(Project.from_dict(yaml.safe_load(path.read_text(encoding="utf-8"))))
+            try:
+                data = yaml.safe_load(path.read_text(encoding="utf-8"))
+                projects.append(Project.from_dict(data))
+            except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError) as exc:
+                raise ValidationError(f"{path}: invalid project YAML") from exc
         return projects
 
     def find_by_repository(self, provider: str, repository_id: int) -> Project | None:
@@ -117,7 +124,11 @@ class ObservationStore:
     def all(self) -> list[ObservationRecord]:
         records: list[ObservationRecord] = []
         for path in self._paths():
-            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError) as exc:
+                raise ValidationError(f"{path}: unreadable observation log") from exc
+            for line_number, line in enumerate(lines, start=1):
                 if not line.strip():
                     continue
                 try:

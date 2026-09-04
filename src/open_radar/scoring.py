@@ -140,8 +140,8 @@ class ContextStore:
         for path in sorted(self.directory.glob("*.yaml")):
             try:
                 context = Context.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError, yaml.YAMLError) as exc:
-                raise ValueError(f"{path}: invalid context") from exc
+            except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError, TypeError) as exc:
+                raise ValueError(f"{path}: invalid context YAML") from exc
             if context.context_id in seen:
                 raise ValueError(f"duplicate context_id: {context.context_id}")
             seen.add(context.context_id)
@@ -154,7 +154,10 @@ class ContextStore:
         path = self.directory / f"{context_id}.yaml"
         if not path.is_file():
             raise FileNotFoundError(path)
-        return Context.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
+        try:
+            return Context.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError) as exc:
+            raise ValueError(f"{path}: invalid context YAML") from exc
 
     def save(self, context: Context) -> Path:
         if not isinstance(context, Context):

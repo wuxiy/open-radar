@@ -460,7 +460,11 @@ class ChangeEventStore:
         fingerprints: set[str] = set()
         transitions: set[tuple[str, str, str]] = set()
         for path in self._paths():
-            for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            try:
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError) as exc:
+                raise ValueError(f"{path}: unreadable change event log") from exc
+            for line_number, line in enumerate(lines, start=1):
                 if not line.strip():
                     continue
                 try:
