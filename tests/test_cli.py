@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import shutil
 import os
 
@@ -323,6 +323,63 @@ class CliTests(unittest.TestCase):
                 if line.strip()
             ]
             self.assertEqual(sum(entry["run_id"] == "retry-1" for entry in entries), 1)
+
+    def test_collect_can_target_one_project(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            service = Mock()
+            service.collect_all.return_value = 0
+            service.last_errors = []
+            service.last_skipped = ["radar-demo"]
+            with patch("open_radar.cli.GitHubApiClient", return_value=FakeClient()), patch(
+                "open_radar.cli.CollectionService", return_value=service
+            ):
+                self.assertEqual(
+                    main(
+                        [
+                            "collect",
+                            "--root",
+                            directory,
+                            "--project-id",
+                            "radar-demo",
+                            "--run-id",
+                            "scoped-1",
+                            "--scheduled-at",
+                            "2026-09-05T00:00:00Z",
+                        ]
+                    ),
+                    0,
+                )
+            self.assertEqual(
+                service.collect_all.call_args.kwargs["project_id"], "radar-demo"
+            )
+            manifests = list((root / "data" / "runs").glob("*.jsonl"))
+            manifest = json.loads(manifests[0].read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(manifest["metadata"], {"project_id": "radar-demo"})
+
+    def test_collect_rejects_unknown_project_without_traceback(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            errors = StringIO()
+            with patch("open_radar.cli.GitHubApiClient", return_value=FakeClient()), redirect_stderr(errors):
+                self.assertEqual(
+                    main(
+                        [
+                            "collect",
+                            "--root",
+                            directory,
+                            "--project-id",
+                            "missing",
+                        ]
+                    ),
+                    1,
+                )
+            self.assertIn("collect failed: project does not exist: missing", errors.getvalue())
+            self.assertNotIn("Traceback", errors.getvalue())
+            manifests = list((root / "data" / "runs").glob("*.jsonl"))
+            manifest = json.loads(manifests[0].read_text(encoding="utf-8").splitlines()[0])
+            self.assertEqual(manifest["status"], "failed")
+            self.assertEqual(manifest["metadata"], {"project_id": "missing"})
 
     def test_run_manifest_replay_ignores_timestamp_but_rejects_conflict(self):
         with TemporaryDirectory() as directory:

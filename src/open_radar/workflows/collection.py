@@ -31,6 +31,7 @@ class CollectionService:
         scheduled_at: datetime,
         observed_at: datetime | None = None,
         recorded_at: datetime | None = None,
+        project_id: str | None = None,
     ) -> int:
         scheduled_at = ensure_utc(scheduled_at)
         observed_at = ensure_utc(observed_at or scheduled_at)
@@ -38,7 +39,12 @@ class CollectionService:
         self.last_errors = []
         self.last_skipped = []
         records = []
-        for project in self.projects.all():
+        projects = self.projects.all()
+        if project_id is not None:
+            projects = [project for project in projects if project.id == project_id]
+            if not projects:
+                raise ValueError(f"project does not exist: {project_id}")
+        for project in projects:
             if project.tracking == "off":
                 continue
             latest = self.observations.current_for(project.id)

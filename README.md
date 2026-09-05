@@ -2,7 +2,7 @@
 
 Open Radar keeps a small, Git-backed catalog of open-source projects and their public GitHub observations. Project metadata lives in reviewed YAML files. Machine observations append to monthly JSONL logs. A deterministic generator turns the current data into Markdown.
 
-The repository contains the V0.1 local core, offline-safe admission and publishing, the V0.2.1 Change Intelligence slice, and V0.2.2 availability hardening. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
+The repository contains the V0.1 local core, offline-safe admission and publishing, the V0.2.1 Change Intelligence slice, V0.2.2 availability hardening, and V0.2.4 scoped collection controls. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
 
 ## Install
 
@@ -61,7 +61,7 @@ GITHUB_TOKEN=... open-radar collect \
   --scheduled-at 2026-09-03T00:00:00Z
 ```
 
-The collector honors each project's `tracking` value, skips `off`, schedules every associated repository independently, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes one idempotent run manifest per `run_id` under `data/runs/YYYY-MM.jsonl`.
+Pass `--project-id radar-demo` when manually refreshing one project; the run manifest records that scope. The collector honors each project's `tracking` value, skips `off`, schedules every associated repository independently, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes one idempotent run manifest per `run_id` under `data/runs/YYYY-MM.jsonl`.
 
 Regenerate a Markdown view from the checked-in data:
 

@@ -300,6 +300,7 @@ def _collect(namespace: argparse.Namespace) -> int:
     root = _root(namespace)
     started = _now()
     run_id = namespace.run_id or _run_id()
+    scope_metadata = {"project_id": namespace.project_id} if namespace.project_id else None
     try:
         service = CollectionService(
             _provider(namespace), ProjectStore(root), ObservationStore(root)
@@ -307,6 +308,7 @@ def _collect(namespace: argparse.Namespace) -> int:
         count = service.collect_all(
             run_id=run_id,
             scheduled_at=_timestamp(namespace.scheduled_at) if namespace.scheduled_at else started,
+            project_id=namespace.project_id,
         )
         errors = service.last_errors
         print(f"appended observations: {count}")
@@ -314,11 +316,33 @@ def _collect(namespace: argparse.Namespace) -> int:
             for error in errors:
                 print(f"collect warning: {error}", file=sys.stderr)
         status = "partial" if errors and count else "failed" if errors else "succeeded"
-        _write_manifest(root, run_id=run_id, kind="collect", started_at=started, status=status, counts={"observations_appended": count, "projects_skipped": len(service.last_skipped), "errors": len(errors)}, errors=errors)
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="collect",
+            started_at=started,
+            status=status,
+            counts={
+                "observations_appended": count,
+                "projects_skipped": len(service.last_skipped),
+                "errors": len(errors),
+            },
+            errors=errors,
+            metadata=scope_metadata,
+        )
         return 1 if errors and not count else 0
     except (ValueError, FileNotFoundError, RuntimeError, GitHubProviderError) as exc:
         print(f"collect failed: {exc}", file=sys.stderr)
-        _write_manifest(root, run_id=run_id, kind="collect", started_at=started, status="failed", counts={}, errors=[str(exc)])
+        _write_manifest(
+            root,
+            run_id=run_id,
+            kind="collect",
+            started_at=started,
+            status="failed",
+            counts={},
+            errors=[str(exc)],
+            metadata=scope_metadata,
+        )
         return 1
 
 
@@ -769,6 +793,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--token", default=None)
     collect.add_argument("--run-id")
     collect.add_argument("--scheduled-at")
+    collect.add_argument("--project-id", help="collect only one project")
     collect.set_defaults(handler=_collect)
 
     detect_changes = subparsers.add_parser(

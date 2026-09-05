@@ -314,6 +314,51 @@ class WorkflowTests(unittest.TestCase):
                 ["radar-demo (github:100000002): rate limited"],
             )
 
+    def test_collection_can_target_one_project(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            projects = ProjectStore(root)
+            observations = ObservationStore(root)
+            projects.save(project())
+            other = project(project_id="other")
+            other_data = other.to_dict()
+            other_data["repositories"][0].update(
+                {
+                    "repository_id": 100000002,
+                    "repo": "sdk",
+                }
+            )
+            projects.save(Project.from_dict(other_data))
+            service = CollectionService(
+                GitHubProvider(MultiRepositoryClient()), projects, observations
+            )
+            now = datetime(2026, 9, 3, tzinfo=timezone.utc)
+            self.assertEqual(
+                service.collect_all(
+                    run_id="run-other",
+                    scheduled_at=now,
+                    project_id="other",
+                ),
+                1,
+            )
+            self.assertEqual(
+                [record.project_id for record in observations.all()], ["other"]
+            )
+            self.assertEqual(
+                service.collect_all(
+                    run_id="run-main",
+                    scheduled_at=now,
+                    project_id="radar-demo",
+                ),
+                1,
+            )
+            with self.assertRaisesRegex(ValueError, "project does not exist: missing"):
+                service.collect_all(
+                    run_id="run-missing",
+                    scheduled_at=now,
+                    project_id="missing",
+                )
+
     def test_readme_is_deterministic_and_uses_current_observation(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
