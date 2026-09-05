@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from datetime import timedelta
 
-from ..domain import Project, ensure_utc
+from ..domain import ObservationRecord, Project, RepositoryRef, ensure_utc
 from ..github_provider import GitHubProvider
 from ..identity import GitHubRepositoryIdentity
 from ..storage import ObservationStore, ProjectStore
@@ -41,47 +41,64 @@ class CollectionService:
         for project in self.projects.all():
             if project.tracking == "off":
                 continue
-            if not self._due(project, scheduled_at):
+            latest = self.observations.current_for(project.id)
+            due_repositories = [
+                repository
+                for repository in project.repositories
+                if self._due(project, repository, scheduled_at, latest=latest)
+            ]
+            if not due_repositories:
                 self.last_skipped.append(project.id)
                 continue
-            try:
-                primary = project.primary_repository
-                identity = GitHubRepositoryIdentity(owner=primary.owner, repo=primary.repo)
-                metadata = self.provider.fetch_repository(identity)
-                if metadata.repository_id != primary.repository_id:
-                    raise ValueError(
-                        f"provider repository id mismatch for {project.id}: "
-                        f"expected {primary.repository_id}, got {metadata.repository_id}"
+            for repository in due_repositories:
+                try:
+                    identity = GitHubRepositoryIdentity(
+                        owner=repository.owner, repo=repository.repo
                     )
-                records.append(
-                    self.provider.to_observation(
-                        project.id,
-                        metadata,
-                        run_id=run_id,
-                        scheduled_at=scheduled_at,
-                        observed_at=observed_at,
-                        recorded_at=recorded_at,
+                    metadata = self.provider.fetch_repository(identity)
+                    if metadata.repository_id != repository.repository_id:
+                        raise ValueError(
+                            f"provider repository id mismatch for {project.id}: "
+                            f"expected {repository.repository_id}, got {metadata.repository_id}"
+                        )
+                    records.append(
+                        self.provider.to_observation(
+                            project.id,
+                            metadata,
+                            run_id=run_id,
+                            scheduled_at=scheduled_at,
+                            observed_at=observed_at,
+                            recorded_at=recorded_at,
+                        )
                     )
-                )
-            except (RuntimeError, ValueError, StopIteration) as exc:
-                self.last_errors.append(f"{project.id}: {exc}")
+                except (RuntimeError, ValueError, StopIteration) as exc:
+                    scope = project.id
+                    if repository.role != "primary":
+                        scope += f" ({repository.provider}:{repository.repository_id})"
+                    self.last_errors.append(f"{scope}: {exc}")
         return self.observations.append_batch(records)
 
-    def _due(self, project: Project, scheduled_at: datetime) -> bool:
-        latest = self.observations.current_for(project.id)
+    def _due(
+        self,
+        project: Project,
+        repository: RepositoryRef,
+        scheduled_at: datetime,
+        *,
+        latest: list[ObservationRecord] | None = None,
+    ) -> bool:
+        latest = latest if latest is not None else self.observations.current_for(project.id)
         if not latest:
             return True
         interval_days = {"daily": 1, "weekly": 7, "monthly": 30}[project.tracking]
-        primary = project.primary_repository
-        primary_latest = next(
+        repository_latest = next(
             (
                 record
                 for record in latest
-                if record.provider == primary.provider
-                and record.repository_id == primary.repository_id
+                if record.provider == repository.provider
+                and record.repository_id == repository.repository_id
             ),
             None,
         )
-        if primary_latest is None:
+        if repository_latest is None:
             return True
-        return primary_latest.observed_at + timedelta(days=interval_days) <= scheduled_at
+        return repository_latest.observed_at + timedelta(days=interval_days) <= scheduled_at

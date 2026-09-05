@@ -61,7 +61,7 @@ GITHUB_TOKEN=... open-radar collect \
   --scheduled-at 2026-09-03T00:00:00Z
 ```
 
-The collector honors each project's `tracking` value, skips `off`, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes one idempotent run manifest per `run_id` under `data/runs/YYYY-MM.jsonl`.
+The collector honors each project's `tracking` value, skips `off`, schedules every associated repository independently, retries 429, 5xx, timeout, and connection errors with bounded backoff, keeps unknown values unknown, appends observations under `data/observations/github/YYYY-MM.jsonl`, and writes one idempotent run manifest per `run_id` under `data/runs/YYYY-MM.jsonl`.
 
 Regenerate a Markdown view from the checked-in data:
 

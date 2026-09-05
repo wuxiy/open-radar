@@ -12,7 +12,7 @@ from open_radar.admission_request import (
     AuthorizationPolicy,
 )
 from open_radar.domain import Project, RepositoryRef
-from open_radar.github_provider import GitHubProvider
+from open_radar.github_provider import GitHubProvider, RepositoryMetadata
 from open_radar.github_webhook import GitHubWebhookVerifier, VerifiedIssueEvent
 from open_radar.generation import render_readme
 from open_radar.storage import ObservationStore, ProjectStore
@@ -53,6 +53,28 @@ class FailingClient(FakeClient):
         return self.payload
 
 
+class MultiRepositoryClient(FakeClient):
+    def get_repository(self, owner, repo):
+        payload = dict(self.payload)
+        if repo == "sdk":
+            payload.update(
+                {
+                    "id": 100000002,
+                    "name": "sdk",
+                    "full_name": "example-org/sdk",
+                    "html_url": "https://github.com/example-org/sdk",
+                }
+            )
+        return payload
+
+
+class MultiRepositoryFailingClient(MultiRepositoryClient):
+    def get_repository(self, owner, repo):
+        if repo == "sdk":
+            raise RuntimeError("rate limited")
+        return super().get_repository(owner, repo)
+
+
 def project(*, tracking="weekly", project_id="radar-demo"):
     return Project.from_dict(
         {
@@ -83,6 +105,20 @@ def project(*, tracking="weekly", project_id="radar-demo"):
             "tracking": tracking,
         }
     )
+
+
+def multi_repository_project():
+    base = project().to_dict()
+    base["repositories"].append(
+        {
+            "provider": "github",
+            "repository_id": 100000002,
+            "owner": "example-org",
+            "repo": "sdk",
+            "role": "sdk",
+        }
+    )
+    return Project.from_dict(base)
 
 
 class WorkflowTests(unittest.TestCase):
@@ -200,6 +236,83 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(service.collect_all(run_id="run-2", scheduled_at=now), 0)
             self.assertEqual(service.last_skipped, ["radar-demo"])
             self.assertEqual(len(observations.all()), 1)
+
+    def test_collection_collects_each_due_repository(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            projects = ProjectStore(root)
+            observations = ObservationStore(root)
+            projects.save(multi_repository_project())
+            service = CollectionService(
+                GitHubProvider(MultiRepositoryClient()), projects, observations
+            )
+            now = datetime(2026, 9, 3, tzinfo=timezone.utc)
+            self.assertEqual(service.collect_all(run_id="run-1", scheduled_at=now), 2)
+            self.assertEqual(
+                {record.repository_id for record in observations.all()},
+                {100000001, 100000002},
+            )
+            self.assertEqual(service.collect_all(run_id="run-2", scheduled_at=now), 0)
+            self.assertEqual(service.last_skipped, ["radar-demo"])
+
+    def test_collection_schedules_repositories_independently(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            projects = ProjectStore(root)
+            observations = ObservationStore(root)
+            projects.save(multi_repository_project())
+            service = CollectionService(
+                GitHubProvider(MultiRepositoryClient()), projects, observations
+            )
+            first = datetime(2026, 9, 3, tzinfo=timezone.utc)
+            self.assertEqual(service.collect_all(run_id="run-1", scheduled_at=first), 2)
+            primary_refresh = GitHubProvider(MultiRepositoryClient()).to_observation(
+                "radar-demo",
+                RepositoryMetadata.from_api(PAYLOAD),
+                run_id="run-primary-refresh",
+                scheduled_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+                observed_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+                recorded_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            )
+            observations.append(primary_refresh)
+            self.assertEqual(
+                service.collect_all(
+                    run_id="run-2",
+                    scheduled_at=datetime(2026, 9, 11, tzinfo=timezone.utc),
+                ),
+                1,
+            )
+            current = {
+                record.repository_id: record
+                for record in observations.current_for("radar-demo")
+            }
+            self.assertEqual(
+                current[100000001].observed_at,
+                datetime(2026, 9, 10, tzinfo=timezone.utc),
+            )
+            self.assertEqual(
+                current[100000002].observed_at,
+                datetime(2026, 9, 11, tzinfo=timezone.utc),
+            )
+
+    def test_collection_keeps_success_when_associated_repository_fails(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            projects = ProjectStore(root)
+            observations = ObservationStore(root)
+            projects.save(multi_repository_project())
+            service = CollectionService(
+                GitHubProvider(MultiRepositoryFailingClient()), projects, observations
+            )
+            now = datetime(2026, 9, 3, tzinfo=timezone.utc)
+            self.assertEqual(service.collect_all(run_id="run-1", scheduled_at=now), 1)
+            self.assertEqual(
+                [record.repository_id for record in observations.all()], [100000001]
+            )
+            self.assertEqual(
+                service.last_errors,
+                ["radar-demo (github:100000002): rate limited"],
+            )
 
     def test_readme_is_deterministic_and_uses_current_observation(self):
         with TemporaryDirectory() as directory:

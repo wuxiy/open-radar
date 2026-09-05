@@ -200,4 +200,11 @@
 - [x] Wheel 包含 README 模板等运行时资源，安装环境可运行 CLI。
 - [x] 权威合并事实约束与回归测试保持有效；远程私有化、分支保护、签名和真实 E2E 继续作为外部门禁，不在本轮直接操作。
 
-验证证据（2026-09-05）：`unittest discover -s tests -q` 通过 122 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过；解包后的 0.2.2 wheel 通过完整测试并可从 `open_radar/templates/README.md.j2` 渲染 README。
+验证证据（2026-09-05）：`unittest discover -s tests -q` 通过 125 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过；解包后的 0.2.2 wheel 通过完整测试并可从 `open_radar/templates/README.md.j2` 渲染 README。
+
+## V0.2.3 多仓库采集（本轮）
+
+- [x] 为项目的每个关联仓库独立计算采集到期时间，附属仓库不再静默缺少观测。
+- [x] 单个仓库失败与其他仓库隔离，保留成功记录，并覆盖批量幂等回归测试。
+
+边界：真实 GitHub 写入、受控仓库 E2E、分支保护和签名仍需外部授权。
