@@ -39,11 +39,13 @@ class CollectionService:
         self.last_errors = []
         self.last_skipped = []
         records = []
-        projects = self.projects.all()
-        if project_id is not None:
-            projects = [project for project in projects if project.id == project_id]
-            if not projects:
-                raise ValueError(f"project does not exist: {project_id}")
+        if project_id is None:
+            projects = self.projects.all()
+        else:
+            try:
+                projects = [self.projects.load(project_id)]
+            except FileNotFoundError as exc:
+                raise ValueError(f"project does not exist: {project_id}") from exc
         for project in projects:
             if project.tracking == "off":
                 continue

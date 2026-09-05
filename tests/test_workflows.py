@@ -359,6 +359,27 @@ class WorkflowTests(unittest.TestCase):
                     project_id="missing",
                 )
 
+    def test_targeted_collection_ignores_unrelated_invalid_project(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            projects = ProjectStore(root)
+            observations = ObservationStore(root)
+            projects.save(project())
+            (root / "data" / "projects" / "unrelated.yaml").write_text(
+                "id: [invalid\n", encoding="utf-8"
+            )
+            service = CollectionService(
+                GitHubProvider(FakeClient()), projects, observations
+            )
+            self.assertEqual(
+                service.collect_all(
+                    run_id="run-targeted",
+                    scheduled_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+                    project_id="radar-demo",
+                ),
+                1,
+            )
+
     def test_readme_is_deterministic_and_uses_current_observation(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

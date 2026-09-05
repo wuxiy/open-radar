@@ -213,7 +213,8 @@
 
 - [x] `collect --project-id` 只刷新指定项目，并对未知项目稳定失败。
 - [x] 采集运行清单记录项目范围，保留全量采集的既有调度、幂等和错误隔离语义。
+- [x] 项目级刷新只读取目标 YAML，不被无关项目的损坏文件阻断。
 
 边界：真实 GitHub 写入、受控仓库 E2E、分支保护和签名仍需外部授权。
 
-验证证据（2026-09-05）：`unittest discover -s tests -q` 通过 128 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过。
+验证证据（2026-09-05）：`unittest discover -s tests -q` 通过 129 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过。
