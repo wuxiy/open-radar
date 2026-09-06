@@ -218,3 +218,13 @@
 边界：真实 GitHub 写入、受控仓库 E2E、分支保护和签名仍需外部授权。
 
 验证证据（2026-09-05）：`unittest discover -s tests -q` 通过 129 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过。
+
+## V0.2.5 项目文件身份一致性（本轮）
+
+- [x] `ProjectStore.load/all` 校验 YAML 内 `id` 必须与 `data/projects/<id>.yaml` 文件名一致。
+- [x] 增加错名文件回归测试，避免定向读取与全量扫描得到不同项目身份。
+- [x] 定向读取先校验项目 ID slug，拒绝路径越界输入。
+
+边界：真实 GitHub 写入、受控仓库 E2E、分支保护和签名仍需外部授权。
+
+验证证据（2026-09-06）：`unittest discover -s tests -q` 通过 131 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过。

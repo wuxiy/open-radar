@@ -142,7 +142,7 @@ Project state uses three independent fields:
 | `decision` | `undecided`, `adopt`, `reference`, `reject` |
 | `tracking` | `daily`, `weekly`, `monthly`, `off` |
 
-Machine-owned metrics do not belong in project YAML. Corrections append a new record with `supersedes` and `correction_reason`; existing history is not rewritten.
+Machine-owned metrics do not belong in project YAML. Project files are stored as `data/projects/<id>.yaml`; the storage layer validates slug IDs and rejects a YAML `id` that does not match its filename. Corrections append a new record with `supersedes` and `correction_reason`; existing history is not rewritten.
 
 Observation publishing is constrained by `ObservationOnlyPublisher`. Its allowlist accepts monthly GitHub observation JSONL, compact run JSONL, deterministic change-event JSONL, and a generated README. Existing machine files require a per-artifact baseline SHA-256 and byte-for-byte append semantics; the plan also carries a stable idempotency key and baseline state digest for a sink-side CAS check. A `PublisherSink` must receive that digest and return a matching `PublisherCommitResult`; a legacy or CAS-rejecting sink fails closed. Historical month partitions are closed: late or future-dated observations are routed to the current writable month while retaining their original timestamps. Multiple artifacts are validated as one overlay before the README is regenerated, so a stale README or cross-file duplicate cannot pass. The publisher rejects project, taxonomy, schema, workflow, traversal, symlink, duplicate-path, malformed-JSONL, and oversized artifacts. It never interprets external text or executes commands. Source signatures and protected-branch enforcement remain deployment-specific checks for the live adapter.
 

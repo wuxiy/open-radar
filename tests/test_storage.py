@@ -4,7 +4,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from open_radar.domain import ObservationRecord, Project
+import yaml
+
+from open_radar.domain import ObservationRecord, Project, ValidationError
 from open_radar.storage import DuplicateCollectionError, ObservationStore, ProjectStore
 
 
@@ -71,6 +73,25 @@ class ProjectStoreTests(unittest.TestCase):
                 store.find_by_repository("github", 100000001).id,
                 "radar-demo",
             )
+
+    def test_project_id_must_match_yaml_filename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ProjectStore(Path(directory))
+            store.directory.mkdir(parents=True)
+            (store.directory / "expected.yaml").write_text(
+                yaml.safe_dump(sample_project("actual").to_dict()), encoding="utf-8"
+            )
+
+            with self.assertRaisesRegex(ValidationError, "does not match filename"):
+                store.load("expected")
+            with self.assertRaisesRegex(ValidationError, "does not match filename"):
+                store.all()
+
+    def test_load_rejects_project_id_path_traversal(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ProjectStore(Path(directory))
+            with self.assertRaisesRegex(ValidationError, "lowercase slug"):
+                store.load("../outside")
 
 
 class ObservationStoreTests(unittest.TestCase):

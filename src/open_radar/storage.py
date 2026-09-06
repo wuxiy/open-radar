@@ -11,7 +11,7 @@ from typing import Iterator
 
 import yaml
 
-from .domain import ObservationRecord, Project, ValidationError, writable_month
+from .domain import ID_PATTERN, ObservationRecord, Project, ValidationError, writable_month
 
 
 class DuplicateCollectionError(ValueError):
@@ -83,23 +83,29 @@ class ProjectStore:
         return destination
 
     def load(self, project_id: str) -> Project:
+        if not isinstance(project_id, str) or not ID_PATTERN.fullmatch(project_id):
+            raise ValidationError("project id must be a lowercase slug")
         path = self.directory / f"{project_id}.yaml"
         if not path.is_file():
             raise FileNotFoundError(path)
+        return self._load_path(path, expected_id=project_id)
+
+    def _load_path(self, path: Path, *, expected_id: str) -> Project:
         try:
             data = yaml.safe_load(path.read_text(encoding="utf-8"))
-            return Project.from_dict(data)
+            project = Project.from_dict(data)
         except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError) as exc:
             raise ValidationError(f"{path}: invalid project YAML") from exc
+        if project.id != expected_id:
+            raise ValidationError(
+                f"{path}: project id {project.id!r} does not match filename {expected_id!r}"
+            )
+        return project
 
     def all(self) -> list[Project]:
         projects = []
         for path in sorted(self.directory.glob("*.yaml")):
-            try:
-                data = yaml.safe_load(path.read_text(encoding="utf-8"))
-                projects.append(Project.from_dict(data))
-            except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError) as exc:
-                raise ValidationError(f"{path}: invalid project YAML") from exc
+            projects.append(self._load_path(path, expected_id=path.stem))
         return projects
 
     def find_by_repository(self, provider: str, repository_id: int) -> Project | None:
