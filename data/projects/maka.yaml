@@ -1,0 +1,23 @@
+schema_version: 1
+id: maka
+display_name: Apache Maka
+aliases:
+  - Maka
+repositories:
+  - provider: github
+    repository_id: 1251460378
+    owner: apache
+    repo: maka
+    role: primary
+primary_category: ai
+tags:
+  - agent
+  - coding-agent
+discovery_sources:
+  - type: manual
+    url: https://github.com/apache/maka
+    discovered_at: '2026-09-08T03:44:15Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''

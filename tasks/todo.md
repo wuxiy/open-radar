@@ -241,3 +241,12 @@
 边界：不引入图数据库、自动关系推断、LLM、项目合并迁移或远程 GitHub 写入；关系仍是人工审核后提交的知识。
 
 验证证据（2026-09-08）：`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 142 项（跳过 1 项外部 API 测试）；根目录 `validate`、`compileall` 与 `git diff --check` 通过；无依赖构建生成 `open_radar-0.3.0-py3-none-any.whl`，并在脱离源码目录的路径中确认包含 `open_radar.relations` 与版本 `0.3.0`。
+
+## 收录：Apache Maka（本轮）
+
+- [x] 核验公开 GitHub 身份、Apache-2.0 许可证、稳定仓库 ID 与受控 taxonomy。
+- [x] 新增最小人工项目记录：`watching / undecided / weekly`，不填充未经研究的结论。
+- [x] 通过只读 GitHub 采集写入首条机器观测，并生成临时 Catalog 预览。
+- [x] 运行完整离线测试、全仓库校验和差异检查。
+
+验证证据（2026-09-08）：GitHub 只读采集在一次短暂失败后重试成功，写入 `maka` 的首条观测；临时 Catalog 预览显示 Apache Maka、4,963 Stars 与 `2026-09-08T03:44:15Z`。`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 142 项（跳过 1 项外部 API 测试），`open-radar validate` 与 `git diff --check` 通过。
