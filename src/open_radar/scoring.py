@@ -136,16 +136,8 @@ class ContextStore:
         if not self.directory.exists():
             return []
         contexts: list[Context] = []
-        seen: set[str] = set()
         for path in sorted(self.directory.glob("*.yaml")):
-            try:
-                context = Context.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
-            except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError, TypeError) as exc:
-                raise ValueError(f"{path}: invalid context YAML") from exc
-            if context.context_id in seen:
-                raise ValueError(f"duplicate context_id: {context.context_id}")
-            seen.add(context.context_id)
-            contexts.append(context)
+            contexts.append(self._load_path(path, expected_id=path.stem))
         return contexts
 
     def load(self, context_id: str) -> Context:
@@ -154,10 +146,18 @@ class ContextStore:
         path = self.directory / f"{context_id}.yaml"
         if not path.is_file():
             raise FileNotFoundError(path)
+        return self._load_path(path, expected_id=context_id)
+
+    def _load_path(self, path: Path, *, expected_id: str) -> Context:
         try:
-            return Context.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
+            context = Context.from_dict(yaml.safe_load(path.read_text(encoding="utf-8")))
         except (OSError, UnicodeDecodeError, yaml.YAMLError, TypeError, ValueError) as exc:
             raise ValueError(f"{path}: invalid context YAML") from exc
+        if context.context_id != expected_id:
+            raise ValueError(
+                f"{path}: context id {context.context_id!r} does not match filename {expected_id!r}"
+            )
+        return context
 
     def save(self, context: Context) -> Path:
         if not isinstance(context, Context):

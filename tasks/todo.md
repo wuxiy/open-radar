@@ -228,3 +228,16 @@
 边界：真实 GitHub 写入、受控仓库 E2E、分支保护和签名仍需外部授权。
 
 验证证据（2026-09-06）：`unittest discover -s tests -q` 通过 131 项（跳过 1 项外部 API 测试）；`compileall` 与 `git diff --check` 通过。
+
+## V0.3 关系图核心（本轮）
+
+- [x] 冻结 `relation.v1.json` 与 `relation-types.v1.json`：项目/上下文类型化端点、关系类型及允许方向、理由和研究证据引用。
+- [x] 增加受控 `relation-types` 词表，以及 `data/relations/<id>.yaml` 的原子、幂等写入与文件名/ID 一致性校验。
+- [x] 规范化对称关系端点顺序，并拒绝自环和重复语义边。
+- [x] 扩展 `validate`，校验关系端点、受控类型/方向组合，以及研究证据与端点的绑定。
+- [x] 增加只读 `open-radar relations --project-id|--context-id` 查询，不写入运行清单，并对失效关系失败关闭。
+- [x] 覆盖关系契约、存储幂等、对称查询、CLI 只读性、上下文文件身份和跨文件失败路径。
+
+边界：不引入图数据库、自动关系推断、LLM、项目合并迁移或远程 GitHub 写入；关系仍是人工审核后提交的知识。
+
+验证证据（2026-09-08）：`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 142 项（跳过 1 项外部 API 测试）；根目录 `validate`、`compileall` 与 `git diff --check` 通过；无依赖构建生成 `open_radar-0.3.0-py3-none-any.whl`，并在脱离源码目录的路径中确认包含 `open_radar.relations` 与版本 `0.3.0`。

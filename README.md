@@ -2,7 +2,7 @@
 
 Open Radar keeps a small, Git-backed catalog of open-source projects and their public GitHub observations. Project metadata lives in reviewed YAML files. Machine observations append to monthly JSONL logs. A deterministic generator turns the current data into Markdown.
 
-The repository contains the V0.1 local core, offline-safe admission and publishing, the V0.2.1 Change Intelligence slice, V0.2.2 availability hardening, and V0.2.4 scoped collection controls. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
+The repository contains the V0.1 local core, offline-safe admission and publishing, V0.2 Change Intelligence and research/reporting, V0.2.5 collection and identity hardening, and the V0.3 offline relationship core. It does not execute code from third-party repositories, call an LLM, or claim that a deterministic local PR plan is a live GitHub write.
 
 ## Install
 
@@ -71,7 +71,7 @@ open-radar generate --output README.generated.md
 
 Use `--force` only when the destination is an intended generated file. The generator uses [`templates/README.md.j2`](templates/README.md.j2), stable sorting, and no current-time or network input.
 
-Validate project YAML, observation logs, taxonomy, run manifests, correction chains, and cross-file repository references:
+Validate project YAML, observation logs, taxonomy, relationships, run manifests, correction chains, and cross-file references:
 
 ```bash
 open-radar validate
@@ -106,6 +106,15 @@ Scores use the versioned five-dimension RadarScore formula. Missing dimensions (
 
 `validate` resolves `source_type: observation` references against the observation ledger; URL and commit sources retain their immutable locator/SHA, while opaque snapshot IDs remain external evidence references.
 
+Relationships are reviewed human knowledge in `data/relations/<id>.yaml`, not derived machine state. Each edge has typed `project` or `context` endpoints, a controlled type and permitted direction from `data/taxonomy/relation-types.yaml`, a reason, and one or more recorded research-evidence IDs that bind to every endpoint. Symmetric edges are stored once using canonical endpoint order. Query the immutable catalog view with either typed endpoint:
+
+```bash
+open-radar relations --project-id radar-demo
+open-radar relations --context-id open-scope
+```
+
+The command is read-only and includes the queried endpoint plus its derived `other_endpoint`, so symmetric edges are visible from either side without duplicate storage. It fails closed when a matching edge has unknown endpoints, an unsupported type/direction pair, or evidence not bound to its endpoints. `validate` applies the same checks and also rejects duplicate semantic edges and relation IDs that do not match their filenames.
+
 Freeze a historical report with an explicit cutoff and input version. Reports are write-once Markdown snapshots with matching JSON metadata; reusing an ID with changed content fails:
 
 ```bash
@@ -114,18 +123,19 @@ open-radar report \
   --input-version observations:2026-09
 ```
 
-Reports retain cutoff, input, score, and Prompt versions and do not silently recompute when new observations or contexts arrive. The V0.2.1 implementation is deterministic and offline-only; provider `fetch_changes`, LLM execution, relations, and remote writes remain outside this slice.
+Reports retain cutoff, input, score, and Prompt versions and do not silently recompute when new observations or contexts arrive. The V0.2.1 implementation is deterministic and offline-only; provider `fetch_changes`, LLM execution, and remote writes remain outside this slice.
 
 ## Repository layout
 
 ```text
   data/
-  observations/github/   Monthly append-only observation logs
-  change-events/         Deterministic, evidence-bound change events
-  projects/              Human-maintained project YAML
-  runs/                  Compact manifests, replay, usage, and admission ledgers
-  taxonomy/              Controlled categories and tags
-  data/contexts/         Private scoring contexts
+    observations/github/   Monthly append-only observation logs
+    change-events/         Deterministic, evidence-bound change events
+    projects/              Human-maintained project YAML
+    relations/             Human-maintained, evidence-bound relation YAML
+    runs/                  Compact manifests, replay, usage, and admission ledgers
+    taxonomy/              Controlled categories, tags, and relation types
+    contexts/              Private scoring contexts
 research/                 Source-bound human research evidence
 reports/                  Write-once historical Markdown and metadata
 schemas/                 Versioned JSON Schema contracts
@@ -170,6 +180,6 @@ The GitHub Actions workflow runs the offline suite and repository validation wit
 
 ## Current boundary
 
-The local core covers identity resolution, admission candidates, persistent webhook replay deduplication, rate/budget enforcement, durable admission transactions, deterministic PR planning and human-merge reconciliation, project storage, scheduled metadata collection, append-only observations, deterministic Change Intelligence events, observation-only publisher isolation, schema and taxonomy validation, and deterministic README generation.
+The local core covers identity resolution, admission candidates, persistent webhook replay deduplication, rate/budget enforcement, durable admission transactions, deterministic PR planning and human-merge reconciliation, project storage, scheduled metadata collection, append-only observations, deterministic Change Intelligence events, research/scoring/reporting, evidence-bound project/context relationships, observation-only publisher isolation, schema and taxonomy validation, and deterministic README generation.
 
 The controlled E2E test is offline and uses deterministic provider/PR fakes. Live GitHub Issue-to-PR writes, protected-branch checks, provenance signatures, and a real authorized test repository still require explicit credentials and an integration run; they are not simulated as complete here.

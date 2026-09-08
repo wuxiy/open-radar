@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-radar.local/schemas/relation.v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "relation_id", "source", "target", "relation_type", "direction", "reason", "evidence_ids"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "relation_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "source": {"$ref": "#/$defs/endpoint"},
+    "target": {"$ref": "#/$defs/endpoint"},
+    "relation_type": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "direction": {"enum": ["directed", "symmetric"]},
+    "reason": {"type": "string", "minLength": 1},
+    "evidence_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^evidence-[a-z0-9]+(?:-[a-z0-9]+)*$"}
+    }
+  },
+  "$defs": {
+    "endpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {"enum": ["project", "context"]},
+        "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"}
+      }
+    }
+  }
+}

@@ -1,0 +1,19 @@
+schema_version: 1
+kind: relation-types
+items:
+  - id: alternative-to
+    name: Alternative to
+    description: Two endpoints are alternatives for a shared purpose.
+    directions: [symmetric]
+  - id: depends-on
+    name: Depends on
+    description: The source endpoint depends on the target endpoint.
+    directions: [directed]
+  - id: integrates-with
+    name: Integrates with
+    description: The endpoints have a documented integration.
+    directions: [symmetric]
+  - id: supports
+    name: Supports
+    description: The source endpoint supports the target endpoint.
+    directions: [directed]

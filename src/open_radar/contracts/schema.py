@@ -33,6 +33,9 @@ class SchemaValidator:
     def validate_context(self, data: Any) -> None:
         self.validate("context.v1.json", data)
 
+    def validate_relation(self, data: Any) -> None:
+        self.validate("relation.v1.json", data)
+
     def validate_research_evidence(self, data: Any) -> None:
         self.validate("research-evidence.v1.json", data)
 

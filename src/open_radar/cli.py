@@ -30,12 +30,13 @@ from .admission_transactions import AdmissionTransactionError, AdmissionTransact
 from .change_detection import ChangeDetector, ChangeEventStore
 from .github_provider import GitHubApiClient, GitHubProvider, GitHubProviderError
 from .generation import render_readme, write_readme
+from .relations import RelationEndpoint, RelationStore, validate_relation_references
 from .reporting import DuplicateReportError, ReportRenderer, ReportStore
 from .research import ResearchEvidenceStore, build_analysis_proposals
 from .run_manifests import RunManifestStore
 from .scoring import ContextStore, ScoreEngine
 from .storage import ObservationStore, ProjectStore
-from .taxonomy import Taxonomy
+from .taxonomy import RelationTypeCatalog, Taxonomy
 from .workflows.admission import (
     AdmissionMergeGateError,
     AdmissionService,
@@ -456,6 +457,48 @@ def _context(namespace: argparse.Namespace):
     return ContextStore(_root(namespace)).load(namespace.context_id) if namespace.context_id else None
 
 
+def _relations(namespace: argparse.Namespace) -> int:
+    root = _root(namespace)
+    try:
+        project_store = ProjectStore(root)
+        context_store = ContextStore(root)
+        if namespace.project_id:
+            project_store.load(namespace.project_id)
+            endpoint = RelationEndpoint("project", namespace.project_id)
+        else:
+            context_store.load(namespace.context_id)
+            endpoint = RelationEndpoint("context", namespace.context_id)
+        relations = RelationStore(root).for_endpoint(endpoint)
+        relation_type_catalog = RelationTypeCatalog.load(root)
+        reference_errors = validate_relation_references(
+            relations,
+            project_ids={project.id for project in project_store.all()},
+            context_ids={context.context_id for context in context_store.all()},
+            relation_type_directions=relation_type_catalog.directions_by_type,
+            evidence_bindings={
+                evidence.evidence_id: (evidence.project_id, evidence.context_id)
+                for evidence in ResearchEvidenceStore(root).all()
+            },
+        )
+        if reference_errors:
+            raise ValueError("invalid relation references: " + "; ".join(reference_errors))
+        validator = SchemaValidator(root)
+        for relation in relations:
+            validator.validate_relation(relation.to_dict())
+            print(
+                json.dumps(
+                    relation.view_for_endpoint(endpoint),
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
+        return 0
+    except (ValueError, FileNotFoundError, OSError) as exc:
+        print(f"relations failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def _score(namespace: argparse.Namespace) -> int:
     root = _root(namespace)
     started = _now()
@@ -681,6 +724,7 @@ def _validate(namespace: argparse.Namespace) -> int:
         except (ValueError, FileNotFoundError, OSError) as exc:
             context_by_id = {}
             errors.append(f"context store: {exc}")
+        evidence_bindings: dict[str, tuple[str, str | None]] = {}
         try:
             evidence_store = ResearchEvidenceStore(root)
             for evidence in evidence_store.all():
@@ -694,10 +738,31 @@ def _validate(namespace: argparse.Namespace) -> int:
                         )
                     if evidence.context_id is not None and evidence.context_id not in context_by_id:
                         raise ValueError(f"research evidence references unknown context: {evidence.context_id}")
+                    evidence_bindings[evidence.evidence_id] = (
+                        evidence.project_id,
+                        evidence.context_id,
+                    )
                 except ValueError as exc:
                     errors.append(f"research evidence {evidence.evidence_id}: {exc}")
         except (ValueError, FileNotFoundError, OSError) as exc:
             errors.append(f"research evidence ledger: {exc}")
+        try:
+            relation_type_catalog = RelationTypeCatalog.load(root)
+            for relation in RelationStore(root).all():
+                try:
+                    validator.validate_relation(relation.to_dict())
+                    for error in validate_relation_references(
+                        [relation],
+                        project_ids=set(project_by_id),
+                        context_ids=set(context_by_id),
+                        relation_type_directions=relation_type_catalog.directions_by_type,
+                        evidence_bindings=evidence_bindings,
+                    ):
+                        errors.append(f"relation {relation.relation_id}: {error}")
+                except ValueError as exc:
+                    errors.append(f"relation {relation.relation_id}: {exc}")
+        except (ValueError, FileNotFoundError, OSError) as exc:
+            errors.append(f"relation store: {exc}")
         try:
             for report in ReportStore(root).all():
                 try:
@@ -818,6 +883,13 @@ def build_parser() -> argparse.ArgumentParser:
     score.add_argument("--evaluated-at")
     score.add_argument("--input-version")
     score.set_defaults(handler=_score)
+
+    relations = subparsers.add_parser("relations", help="list human-maintained relations for one typed endpoint")
+    relations.add_argument("--root", default=argparse.SUPPRESS)
+    relation_endpoint = relations.add_mutually_exclusive_group(required=True)
+    relation_endpoint.add_argument("--project-id")
+    relation_endpoint.add_argument("--context-id")
+    relations.set_defaults(handler=_relations)
 
     report = subparsers.add_parser("report", help="render and freeze a historical Markdown report")
     report.add_argument("--root", default=argparse.SUPPRESS)
