@@ -266,6 +266,8 @@
 - [x] 实现独立 HTML 渲染器、可访问的 `404.html` 和纯输出 CLI。
 - [x] 添加仅从 `main` 部署的 Pages 工作流，先运行测试和校验再上传 Artifact。
 - [x] 覆盖 HTML 转义、字段白名单、输出覆盖保护与 CLI，并核验 Artifact 不含原始数据。
-- [ ] 提交、推送并启用 GitHub Pages 的 Actions 发布源。
+- [x] 提交、推送并启用 GitHub Pages 的 Actions 发布源。
 
 验证证据（2026-09-10）：`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 148 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。临时 Artifact 只含 `index.html` 和 `404.html`，不含私有字段或源数据，并确认项目 Pages 路径的 404 返回链接为 `/open-radar/`。交叉复审已关闭权限拆分、字段白名单、输出目录封闭性与根路径回退问题。
+
+部署证据（2026-09-10）：提交 `4803fee` 推送到 `main` 后，[Deploy public catalog](https://github.com/wuxiy/open-radar/actions/runs/34452947840) 的 build 与 deploy 均成功。已启用 GitHub Actions Pages 发布源；`https://wuxiy.github.io/open-radar/` 返回 200，未知路径返回自定义 `404.html` 与 404 状态。
