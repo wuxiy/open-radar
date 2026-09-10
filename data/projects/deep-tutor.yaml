@@ -1,0 +1,22 @@
+schema_version: 1
+id: deep-tutor
+display_name: DeepTutor
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1124219907
+    owner: HKUDS
+    repo: DeepTutor
+    role: primary
+primary_category: ai
+tags:
+  - agent
+  - rag
+discovery_sources:
+  - type: manual
+    url: https://github.com/HKUDS/DeepTutor
+    discovered_at: '2026-09-10T03:48:10Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''

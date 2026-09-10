@@ -176,10 +176,19 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 `tests/test_admission_pr.py` is the controlled end-to-end fixture: a signed Issue event is deduplicated and budget-checked, converted into one admission transaction/PR plan, reconciled after a human merge, collected, and passed through the observation-only publisher. It uses a temporary repository and deterministic fakes, so it performs no remote writes.
 
-The GitHub Actions workflow runs the offline suite and repository validation with read-only contents permission.
+The validation workflow runs the offline suite and repository validation with read-only `contents` permission. The separate Pages workflow runs only from `main`: its build job has read-only `contents` and `pages` access, validates before rendering a bounded `index.html`/`404.html` Artifact, and the isolated deploy job alone receives `pages: write` and an OIDC token. It has no repository write permission. Enable the repository's Pages source as **GitHub Actions** before the first deployment.
+
+Preview the same bounded artifact locally (the output directory must be new, empty, or contain only a previous Pages artifact when `--force` is supplied):
+
+```bash
+PYTHONPATH=src python -m open_radar.cli render-site \
+  --root . --output-dir /tmp/open-radar-pages --base-path /open-radar/
+```
 
 ## Current boundary
 
 The local core covers identity resolution, admission candidates, persistent webhook replay deduplication, rate/budget enforcement, durable admission transactions, deterministic PR planning and human-merge reconciliation, project storage, scheduled metadata collection, append-only observations, deterministic Change Intelligence events, research/scoring/reporting, evidence-bound project/context relationships, observation-only publisher isolation, schema and taxonomy validation, and deterministic README generation.
 
 The controlled E2E test is offline and uses deterministic provider/PR fakes. Live GitHub Issue-to-PR writes, protected-branch checks, provenance signatures, and a real authorized test repository still require explicit credentials and an integration run; they are not simulated as complete here.
+
+This GitHub repository is public, and Pages is public too. The static-artifact allowlist prevents accidental publication through the Pages deployment, but it cannot make checked-in source data private; authoritative private notes must be kept outside this repository.

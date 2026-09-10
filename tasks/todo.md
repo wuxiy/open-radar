@@ -250,3 +250,22 @@
 - [x] 运行完整离线测试、全仓库校验和差异检查。
 
 验证证据（2026-09-08）：GitHub 只读采集在一次短暂失败后重试成功，写入 `maka` 的首条观测；临时 Catalog 预览显示 Apache Maka、4,963 Stars 与 `2026-09-08T03:44:15Z`。`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 142 项（跳过 1 项外部 API 测试），`open-radar validate` 与 `git diff --check` 通过。
+
+## 收录：DeepTutor（本轮）
+
+- [x] 核验公开 GitHub 身份、Apache-2.0 许可证、稳定仓库 ID 与受控 taxonomy。
+- [x] 新增最小人工项目记录：`watching / undecided / weekly`，不填充未经研究的结论。
+- [x] 通过只读 GitHub 采集写入首条机器观测，并生成临时 Catalog 预览。
+- [x] 运行完整离线测试、全仓库校验和差异检查。
+
+验证证据（2026-09-10）：GitHub 只读采集写入 `deep-tutor` 的首条观测；临时 Catalog 预览显示 DeepTutor、39,144 Stars 与 `2026-09-10T03:48:10Z`。`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 142 项（跳过 1 项外部 API 测试），`open-radar validate` 与 `git diff --check` 通过。
+
+## 公开 Catalog Pages（本轮）
+
+- [x] 冻结仅公开派生字段：项目名、仓库 URL、分类、研究阶段、跟踪频率、Stars 与观测时间。
+- [x] 实现独立 HTML 渲染器、可访问的 `404.html` 和纯输出 CLI。
+- [x] 添加仅从 `main` 部署的 Pages 工作流，先运行测试和校验再上传 Artifact。
+- [x] 覆盖 HTML 转义、字段白名单、输出覆盖保护与 CLI，并核验 Artifact 不含原始数据。
+- [ ] 提交、推送并启用 GitHub Pages 的 Actions 发布源。
+
+验证证据（2026-09-10）：`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 148 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。临时 Artifact 只含 `index.html` 和 `404.html`，不含私有字段或源数据，并确认项目 Pages 路径的 404 返回链接为 `/open-radar/`。交叉复审已关闭权限拆分、字段白名单、输出目录封闭性与根路径回退问题。

@@ -226,6 +226,50 @@ class CliTests(unittest.TestCase):
             self.assertTrue((root / "README.md").is_file())
             self.assertEqual(main(["validate", "--root", directory]), 0)
 
+    def test_render_site_writes_only_public_entry_points_without_a_manifest(self):
+        with TemporaryDirectory() as directory:
+            root = self._empty_checkout(directory)
+            project = Project.from_dict(
+                {
+                    "schema_version": 1,
+                    "id": "radar-demo",
+                    "display_name": "Radar Demo",
+                    "aliases": [],
+                    "repositories": [
+                        {
+                            "provider": "github",
+                            "repository_id": 100000001,
+                            "owner": "example-org",
+                            "repo": "radar-demo",
+                            "role": "primary",
+                        }
+                    ],
+                    "primary_category": "automation",
+                    "tags": ["automation"],
+                    "discovery_sources": [
+                        {
+                            "type": "manual",
+                            "url": "https://github.com/example-org/radar-demo",
+                            "discovered_at": "2026-09-03T00:00:00Z",
+                        }
+                    ],
+                    "research_stage": "watching",
+                    "decision": "undecided",
+                    "tracking": "weekly",
+                    "personal_notes": "not public",
+                }
+            )
+            ProjectStore(root).save(project)
+            self.assertEqual(
+                main(["render-site", "--root", directory, "--output-dir", "public"]), 0
+            )
+            public = root / "public"
+            self.assertEqual({path.name for path in public.iterdir()}, {"index.html", "404.html"})
+            self.assertIn("Radar Demo", (public / "index.html").read_text(encoding="utf-8"))
+            self.assertNotIn("not public", (public / "index.html").read_text(encoding="utf-8"))
+            self.assertIn('href="/"', (public / "404.html").read_text(encoding="utf-8"))
+            self.assertFalse(list((root / "data" / "runs").glob("*.jsonl")))
+
     def test_validate_is_read_only_by_default(self):
         with TemporaryDirectory() as directory:
             root = self._empty_checkout(directory)

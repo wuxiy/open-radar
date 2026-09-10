@@ -30,6 +30,7 @@ from .admission_transactions import AdmissionTransactionError, AdmissionTransact
 from .change_detection import ChangeDetector, ChangeEventStore
 from .github_provider import GitHubApiClient, GitHubProvider, GitHubProviderError
 from .generation import render_readme, write_readme
+from .public_catalog import render_public_catalog, render_public_not_found, write_public_site
 from .relations import RelationEndpoint, RelationStore, validate_relation_references
 from .reporting import DuplicateReportError, ReportRenderer, ReportStore
 from .research import ResearchEvidenceStore, build_analysis_proposals
@@ -640,6 +641,28 @@ def _generate(namespace: argparse.Namespace) -> int:
         return 1
 
 
+def _render_site(namespace: argparse.Namespace) -> int:
+    """Build a public Pages artifact without writing catalog data or manifests."""
+    root = _root(namespace)
+    try:
+        destination = Path(namespace.output_dir)
+        if not destination.is_absolute():
+            destination = root / destination
+        projects = ProjectStore(root)
+        observations = ObservationStore(root)
+        index_path, _ = write_public_site(
+            destination,
+            catalog=render_public_catalog(projects.all(), observations),
+            not_found=render_public_not_found(base_path=namespace.base_path),
+            force=namespace.force,
+        )
+        print(index_path)
+        return 0
+    except (ValueError, FileNotFoundError, FileExistsError, OSError) as exc:
+        print(f"render-site failed: {exc}", file=sys.stderr)
+        return 1
+
+
 def _validate(namespace: argparse.Namespace) -> int:
     root = _root(namespace)
     started = _now()
@@ -907,6 +930,13 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--output", default="README.md")
     generate.add_argument("--force", action="store_true")
     generate.set_defaults(handler=_generate)
+
+    render_site = subparsers.add_parser("render-site", help="render the bounded public Pages artifact")
+    render_site.add_argument("--root", default=argparse.SUPPRESS)
+    render_site.add_argument("--output-dir", required=True)
+    render_site.add_argument("--base-path", default="/")
+    render_site.add_argument("--force", action="store_true")
+    render_site.set_defaults(handler=_render_site)
 
     validate = subparsers.add_parser("validate", help="validate projects, observations, and taxonomy")
     validate.add_argument("--root", default=argparse.SUPPRESS)

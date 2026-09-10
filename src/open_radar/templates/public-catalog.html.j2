@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A public, evidence-bound view of selected open-source projects.">
+  <title>Open Radar — public catalog</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: oklch(0.17 0.014 62);
+      --surface: oklch(0.215 0.016 62);
+      --surface-active: oklch(0.255 0.02 62);
+      --text: oklch(0.91 0.018 82);
+      --muted: oklch(0.71 0.022 76);
+      --line: oklch(0.42 0.018 68 / 0.5);
+      --accent: oklch(0.78 0.13 76);
+      --accent-muted: oklch(0.65 0.095 76);
+      --radius-tight: 4px;
+      --radius-panel: 10px;
+      --radius-pill: 999px;
+    }
+    * { box-sizing: border-box; }
+    html { background: var(--canvas); }
+    body {
+      min-width: 320px;
+      margin: 0;
+      color: var(--text);
+      background: var(--canvas);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: inherit; }
+    .skip-link {
+      position: fixed;
+      top: 0.75rem;
+      left: 0.75rem;
+      z-index: 2;
+      padding: 0.65rem 0.8rem;
+      color: var(--canvas);
+      background: var(--accent);
+      border-radius: var(--radius-tight);
+      transform: translateY(-160%);
+      transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .skip-link:focus { transform: translateY(0); }
+    .shell { width: min(1120px, calc(100% - 2rem)); margin: 0 auto; padding: clamp(2rem, 6vw, 5rem) 0 2rem; }
+    .masthead {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 1rem;
+      align-items: end;
+      padding-bottom: 2rem;
+      border-bottom: 1px solid var(--line);
+    }
+    .eyebrow { margin: 0 0 0.8rem; color: var(--accent); font: 700 0.72rem/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: 0.13em; }
+    h1 { max-width: 16ch; margin: 0; font-family: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, serif; font-size: clamp(2.6rem, 8vw, 5.8rem); font-weight: 600; letter-spacing: -0.035em; line-height: 0.9; text-wrap: balance; }
+    .lede { max-width: 54ch; margin: 1rem 0 0; color: var(--muted); line-height: 1.55; text-wrap: pretty; }
+    .count { display: grid; justify-items: end; gap: 0.2rem; font-variant-numeric: tabular-nums; }
+    .count strong { color: var(--accent); font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1; }
+    .count span { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .catalog { margin-top: clamp(2rem, 6vw, 4rem); }
+    .catalog-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; }
+    h2 { margin: 0; font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    .catalog-heading p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-panel); background: color-mix(in oklch, var(--surface) 88%, transparent); }
+    table { width: 100%; min-width: 760px; border-collapse: collapse; }
+    th, td { padding: 1rem; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-size: 0.7rem; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase; }
+    tbody tr:last-child td { border-bottom: 0; }
+    td { font-size: 0.91rem; }
+    .project-link { color: var(--text); font-family: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, serif; font-size: 1.15rem; font-weight: 600; text-decoration-color: var(--accent-muted); text-decoration-thickness: 1px; text-underline-offset: 0.22em; }
+    .project-link:focus-visible, .project-link:hover { color: var(--accent); }
+    .num, time { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+    .num { text-align: right; }
+    .state { display: inline-flex; padding: 0.26rem 0.5rem; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 45%, var(--line)); border-radius: var(--radius-pill); font: 650 0.7rem/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: 0.04em; }
+    .quiet { color: var(--muted); }
+    .footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.4rem 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
+    .footer p { max-width: 58ch; margin: 0; }
+    tbody tr { transition: background-color 140ms ease-out; }
+    @media (hover: hover) { tbody tr:hover { background: var(--surface-active); } }
+    @media (max-width: 640px) {
+      .shell { width: min(100% - 1.25rem, 1120px); padding-top: 2rem; }
+      .masthead { grid-template-columns: 1fr; }
+      .count { justify-items: start; }
+      .footer { display: block; }
+      .footer p + p { margin-top: 0.6rem; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; } }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#catalog">Skip to catalog</a>
+  <main id="catalog" class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Open Radar / public catalog</p>
+        <h1>Selected projects, observed in public.</h1>
+        <p class="lede">A compact view of reviewed open-source projects and their latest recorded GitHub facts.</p>
+      </div>
+      <div class="count" aria-label="{{ project_count }} projects">
+        <strong>{{ project_count }}</strong>
+        <span>tracked projects</span>
+      </div>
+    </header>
+    <section class="catalog" aria-labelledby="catalog-heading">
+      <div class="catalog-heading">
+        <h2 id="catalog-heading">Catalog ledger</h2>
+        <p>Latest validated observation</p>
+      </div>
+      <div class="table-wrap" tabindex="0" aria-label="Project catalog table">
+        <table>
+          <thead><tr><th scope="col">Project</th><th scope="col">Category</th><th scope="col">Stage</th><th scope="col">Tracking</th><th scope="col" class="num">Stars</th><th scope="col">Observed UTC</th></tr></thead>
+          <tbody>
+          {% for project in projects %}
+            <tr>
+              <td><a class="project-link" href="{{ project.url }}">{{ project.name }}</a></td>
+              <td>{{ project.category }}</td>
+              <td><span class="state">{{ project.stage }}</span></td>
+              <td>{{ project.tracking }}</td>
+              <td class="num">{% if project.stars is not none %}{{ project.stars }}{% else %}<span class="quiet">N/A</span>{% endif %}</td>
+              <td>{% if project.observed %}<time datetime="{{ project.observed }}">{{ project.observed }}</time>{% else %}<span class="quiet">Not observed</span>{% endif %}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <footer class="footer"><p>Rendered from validated project records and current GitHub observations. Research, context, notes, and run logs are excluded.</p><p>Open Radar</p></footer>
+  </main>
+</body>
+</html>
