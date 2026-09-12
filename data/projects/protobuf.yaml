@@ -1,0 +1,20 @@
+schema_version: 1
+id: protobuf
+display_name: Protocol Buffers
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 23357588
+    owner: protocolbuffers
+    repo: protobuf
+    role: primary
+primary_category: devtools
+tags: []
+discovery_sources:
+  - type: manual
+    url: https://github.com/protocolbuffers/protobuf
+    discovered_at: '2026-09-12T15:07:11Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''

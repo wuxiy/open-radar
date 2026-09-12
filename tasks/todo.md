@@ -280,3 +280,21 @@
 - [x] 运行完整离线测试、全仓库校验和差异检查。
 
 验证证据（2026-09-12）：GitHub 只读采集写入 `ansible` 的首条观测：GPL-3.0、70,661 Stars、24,336 Forks 与 `2026-09-12T06:33:41Z`。临时公开 Catalog 预览显示 Ansible、`automation`、每周跟踪与该观测时间。`PYTHONPATH=src:/private/tmp/open-radar-deps-20260912 python -m unittest discover -s tests -q` 通过 147 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。
+
+## 收录：Wealthfolio（本轮）
+
+- [x] 核验公开 GitHub 身份、AGPL-3.0 许可证、稳定仓库 ID 与受控 taxonomy。
+- [x] 新增最小人工项目记录：`watching / undecided / weekly`，不填充未经研究的结论。
+- [x] 通过只读 GitHub 采集写入首条机器观测，并生成临时 Catalog 预览。
+- [x] 运行完整离线测试、全仓库校验和差异检查。
+
+验证证据（2026-09-12）：GitHub 只读采集写入 `wealthfolio` 的首条观测：AGPL-3.0、8,868 Stars、695 Forks 与 `2026-09-12T13:29:11Z`。临时公开 Catalog 预览显示 Wealthfolio、`data`、每周跟踪与该观测时间。`pytest` 通过 147 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。
+
+## 收录：Protocol Buffers（本轮）
+
+- [x] 核验公开 GitHub 身份、仓库 LICENSE 的 BSD 3-Clause 条款、稳定仓库 ID 与受控 taxonomy。
+- [x] 新增最小人工项目记录：`watching / undecided / weekly`，不填充未经研究的结论。
+- [x] 通过只读 GitHub 采集写入首条机器观测，并生成临时 Catalog 预览。
+- [x] 运行完整离线测试、全仓库校验和差异检查。
+
+验证证据（2026-09-12）：仓库 LICENSE 已人工核验为 BSD 3-Clause；GitHub API 未识别 SPDX，机器观测按原始响应保留 `NOASSERTION`，未篡改为人工结论。首条观测记录 72,034 Stars、16,282 Forks 与 `2026-09-12T15:07:11Z`。临时公开 Catalog 预览显示 Protocol Buffers、`devtools`、每周跟踪与该观测时间。`pytest` 通过 147 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。
