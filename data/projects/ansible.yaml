@@ -1,0 +1,21 @@
+schema_version: 1
+id: ansible
+display_name: Ansible
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 3638964
+    owner: ansible
+    repo: ansible
+    role: primary
+primary_category: automation
+tags:
+  - automation
+discovery_sources:
+  - type: manual
+    url: https://github.com/ansible/ansible
+    discovered_at: '2026-09-12T06:33:41Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''

@@ -271,3 +271,12 @@
 验证证据（2026-09-10）：`PYTHONPATH=src:/private/tmp/open-radar-test-deps python3 -m unittest discover -s tests -q` 通过 148 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。临时 Artifact 只含 `index.html` 和 `404.html`，不含私有字段或源数据，并确认项目 Pages 路径的 404 返回链接为 `/open-radar/`。交叉复审已关闭权限拆分、字段白名单、输出目录封闭性与根路径回退问题。
 
 部署证据（2026-09-10）：提交 `4803fee` 推送到 `main` 后，[Deploy public catalog](https://github.com/wuxiy/open-radar/actions/runs/34452947840) 的 build 与 deploy 均成功。已启用 GitHub Actions Pages 发布源；`https://wuxiy.github.io/open-radar/` 返回 200，未知路径返回自定义 `404.html` 与 404 状态。
+
+## 收录：Ansible（本轮）
+
+- [x] 核验公开 GitHub 身份、GPL-3.0 许可证、稳定仓库 ID 与受控 taxonomy。
+- [x] 新增最小人工项目记录：`watching / undecided / weekly`，不填充未经研究的结论。
+- [x] 通过只读 GitHub 采集写入首条机器观测，并生成临时 Catalog 预览。
+- [x] 运行完整离线测试、全仓库校验和差异检查。
+
+验证证据（2026-09-12）：GitHub 只读采集写入 `ansible` 的首条观测：GPL-3.0、70,661 Stars、24,336 Forks 与 `2026-09-12T06:33:41Z`。临时公开 Catalog 预览显示 Ansible、`automation`、每周跟踪与该观测时间。`PYTHONPATH=src:/private/tmp/open-radar-deps-20260912 python -m unittest discover -s tests -q` 通过 147 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。
