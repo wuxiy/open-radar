@@ -298,3 +298,16 @@
 - [x] 运行完整离线测试、全仓库校验和差异检查。
 
 验证证据（2026-09-12）：仓库 LICENSE 已人工核验为 BSD 3-Clause；GitHub API 未识别 SPDX，机器观测按原始响应保留 `NOASSERTION`，未篡改为人工结论。首条观测记录 72,034 Stars、16,282 Forks 与 `2026-09-12T15:07:11Z`。临时公开 Catalog 预览显示 Protocol Buffers、`devtools`、每周跟踪与该观测时间。`pytest` 通过 147 项（跳过 1 项外部 API 测试）；`validate`、`compileall` 与 `git diff --check` 通过。
+
+## README 作品化升级（本轮）
+
+- [x] 提炼项目定位、核心承诺、可信边界与最短上手路径。
+- [x] 生成并检查一张适合基础设施项目的克制封面，保存为 WebP。
+- [x] 重写 README 首屏、快速开始、核心能力、工作方式和文档入口，保留关键安全边界。
+- [x] 补充 MIT 许可证文件并核对项目元信息。
+- [x] 运行离线测试、仓库校验、README 链接/图片检查和差异检查。
+- [x] 记录验证结果与复盘。
+
+验证证据（2026-09-19）：离线测试通过 148 项（跳过 1 项外部 API 测试），根目录 `validate` 通过；公开 Catalog 预览成功且只生成 `index.html`、`404.html`。0.3.0 wheel 构建成功并包含 `dist-info/licenses/LICENSE`；README 的 4 个本地目标均存在，封面为 1672×941 WebP、96 KB，人工检查文字、构图和压缩清晰度通过；`git diff --check` 无输出。项目没有 `package.json`，因此 README skill 的 `npm run showcase` 不适用。
+
+复盘：本项目是基础设施型工具，采用 clean-doc 模式，只保留一张封面，把阅读顺序从内部实现细节改为价值、快速开始、核心工作流和可信边界。原 README 的关键安全事实均保留，易变的版本清单和过细内部 API 说明不再占据首屏。
