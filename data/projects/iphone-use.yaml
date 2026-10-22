@@ -1,0 +1,23 @@
+schema_version: 1
+id: iphone-use
+display_name: iPhone Use
+aliases: []
+repositories:
+- provider: github
+  repository_id: 1407504032
+  owner: zhongerxin
+  repo: iPhone-use
+  role: primary
+primary_category: automation
+tags:
+- agent
+- testing
+discovery_sources:
+- type: manual
+  url: https://github.com/zhongerxin/iPhone-use
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: 通过本地 MCP 与 WebDriverAgent 操作 USB 连接的真实 iPhone。

@@ -1,0 +1,22 @@
+schema_version: 1
+id: medmcp
+display_name: MedMCP
+aliases: []
+repositories:
+- provider: github
+  repository_id: 1203758109
+  owner: medmcp
+  repo: medmcp
+  role: primary
+primary_category: ai
+tags:
+- agent
+discovery_sources:
+- type: manual
+  url: https://github.com/medmcp/medmcp
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: 用于医学影像研究的工具编排、工作流与执行记录工作空间。

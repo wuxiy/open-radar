@@ -1,0 +1,23 @@
+schema_version: 1
+id: fsearch
+display_name: FSearch (noahdunnagan)
+aliases: []
+repositories:
+- provider: github
+  repository_id: 1410750399
+  owner: noahdunnagan
+  repo: fsearch
+  role: primary
+primary_category: devtools
+tags:
+- search
+- coding-agent
+discovery_sources:
+- type: manual
+  url: https://github.com/noahdunnagan/fsearch
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: Rust 实现的 macOS 文件名、文本和 MCP 搜索工具。

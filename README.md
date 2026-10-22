@@ -139,6 +139,8 @@ tests/                     Offline suite and opt-in integration test
 
 See the [architecture document](./open-radar-project-structure.md) for the complete contracts, security boundaries, and version roadmap.
 
+Reviewed brief: [2026-10-08 to 2026-10-14](./reports/report-weekly-2026-10-14-reviewed-2026-10-22.md), audited on 2026-10-22. It covers eight candidates and separates historical signals, documented capabilities, and follow-up research.
+
 ## Development
 
 Run the offline suite and repository validation:

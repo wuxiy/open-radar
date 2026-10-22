@@ -1,0 +1,22 @@
+schema_version: 1
+id: digup
+display_name: DigUp
+aliases: []
+repositories:
+- provider: github
+  repository_id: 1410929004
+  owner: ARahim3
+  repo: DigUp
+  role: primary
+primary_category: ai
+tags:
+- search
+discovery_sources:
+- type: manual
+  url: https://github.com/ARahim3/DigUp
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: 结合多模态向量与关键词索引的本地桌面搜索应用。

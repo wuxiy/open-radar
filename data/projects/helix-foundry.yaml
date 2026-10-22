@@ -1,0 +1,21 @@
+schema_version: 1
+id: helix-foundry
+display_name: Helix Foundry
+aliases: []
+repositories:
+- provider: github
+  repository_id: 1408277479
+  owner: HelixDB
+  repo: helix-foundry
+  role: primary
+primary_category: data
+tags: []
+discovery_sources:
+- type: manual
+  url: https://github.com/HelixDB/helix-foundry
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: 以业务对象、数据快照和本地查询组织分析的单人数据工作空间。

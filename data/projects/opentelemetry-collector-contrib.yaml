@@ -1,0 +1,21 @@
+schema_version: 1
+id: opentelemetry-collector-contrib
+display_name: OpenTelemetry Collector Contrib
+aliases: []
+repositories:
+- provider: github
+  repository_id: 196414933
+  owner: open-telemetry
+  repo: opentelemetry-collector-contrib
+  role: primary
+primary_category: observability
+tags: []
+discovery_sources:
+- type: manual
+  url: https://github.com/open-telemetry/opentelemetry-collector-contrib
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: OpenTelemetry Collector 的社区组件集合，本次研究 process 指标迁移机制。

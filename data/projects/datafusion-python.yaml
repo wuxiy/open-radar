@@ -1,0 +1,21 @@
+schema_version: 1
+id: datafusion-python
+display_name: Apache DataFusion Python
+aliases: []
+repositories:
+- provider: github
+  repository_id: 515951203
+  owner: apache
+  repo: datafusion-python
+  role: primary
+primary_category: data
+tags: []
+discovery_sources:
+- type: manual
+  url: https://github.com/apache/datafusion-python
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: Apache DataFusion 的 Python 绑定，提供进程内 SQL 与 DataFrame 查询。

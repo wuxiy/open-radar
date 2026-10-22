@@ -1,0 +1,22 @@
+schema_version: 1
+id: xtool
+display_name: xtool
+aliases: []
+repositories:
+- provider: github
+  repository_id: 889784913
+  owner: xtool-org
+  repo: xtool
+  role: primary
+primary_category: devtools
+tags:
+- testing
+discovery_sources:
+- type: manual
+  url: https://github.com/xtool-org/xtool
+  discovered_at: '2026-10-22T02:01:39Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: 面向 Linux、WSL 与 macOS 的 SwiftPM iOS 构建、签名和设备部署工具。
