@@ -3,11 +3,25 @@ from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import yaml
 
 from open_radar.domain import ObservationRecord, Project, ValidationError
 from open_radar.storage import DuplicateCollectionError, ObservationStore, ProjectStore
+
+
+class DatetimeType(type):
+    def __instancecheck__(cls, value):
+        return isinstance(value, datetime)
+
+
+class FixedDatetime(datetime, metaclass=DatetimeType):
+    current = datetime(2026, 9, 4, tzinfo=timezone.utc)
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.fromtimestamp(cls.current.timestamp(), tz)
 
 
 def sample_project(project_id="radar-demo"):
@@ -95,6 +109,9 @@ class ProjectStoreTests(unittest.TestCase):
 
 
 class ObservationStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch("open_radar.domain.datetime", FixedDatetime))
+
     def test_append_is_idempotent_by_collection_key(self):
         with tempfile.TemporaryDirectory() as directory:
             store = ObservationStore(Path(directory))
@@ -235,6 +252,35 @@ class ObservationStoreTests(unittest.TestCase):
             self.assertFalse(
                 (Path(directory) / "data" / "observations" / "github" / "2026-10.jsonl").exists()
             )
+            path = Path(directory) / "data" / "observations" / "github" / "2026-09.jsonl"
+            self.assertEqual(len(path.read_text().splitlines()), 2)
+
+    def test_month_rollover_preserves_closed_partition_and_record_timestamps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = ObservationStore(Path(directory))
+            with patch.object(
+                FixedDatetime,
+                "current",
+                datetime(2026, 9, 30, 23, 59, 59, tzinfo=timezone.utc),
+            ):
+                store.append(sample_observation())
+            september = store.directory / "2026-09.jsonl"
+            baseline = september.read_bytes()
+            late = sample_observation(event_id="obs-late", collection_key="slot-late")
+
+            with patch.object(
+                FixedDatetime,
+                "current",
+                datetime(2026, 10, 1, tzinfo=timezone.utc),
+            ):
+                self.assertTrue(store.append(late))
+
+            self.assertEqual(september.read_bytes(), baseline)
+            rows = [
+                json.loads(line)
+                for line in (store.directory / "2026-10.jsonl").read_text().splitlines()
+            ]
+            self.assertEqual(rows, [late.to_dict()])
 
 
 if __name__ == "__main__":

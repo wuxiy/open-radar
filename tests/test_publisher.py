@@ -4,6 +4,7 @@ import unittest
 import hashlib
 import json
 from datetime import datetime, timezone
+from unittest.mock import patch
 
 from open_radar.change_detection import ChangeDetector
 from open_radar.publisher import (
@@ -18,7 +19,24 @@ from open_radar.storage import ObservationStore, ProjectStore
 from open_radar.domain import ObservationRecord, Project
 
 
+class DatetimeType(type):
+    def __instancecheck__(cls, value):
+        return isinstance(value, datetime)
+
+
+class FixedDatetime(datetime, metaclass=DatetimeType):
+    current = datetime(2026, 9, 4, tzinfo=timezone.utc)
+
+    @classmethod
+    def now(cls, tz=None):
+        return cls.fromtimestamp(cls.current.timestamp(), tz)
+
+
 class PublisherTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch("open_radar.domain.datetime", FixedDatetime))
+        self.enterContext(patch("open_radar.publisher.datetime", FixedDatetime))
+
     def test_path_and_content_allowlist(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -291,6 +309,39 @@ class PublisherTests(unittest.TestCase):
                         base_sha256=hashlib.sha256(old.encode()).hexdigest(),
                     )
                 ])
+
+    def test_current_machine_partition_closes_at_utc_month_rollover(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            content = json.dumps(
+                {
+                    "schema_version": 1,
+                    "run_id": "run-month-end",
+                    "kind": "collect",
+                    "started_at": "2026-09-30T23:59:58Z",
+                    "finished_at": "2026-09-30T23:59:59Z",
+                    "status": "succeeded",
+                    "counts": {},
+                }
+            ) + "\n"
+            artifact = PublisherArtifact("data/runs/2026-09.jsonl", content, "run")
+            publisher = ObservationOnlyPublisher(root)
+            with patch.object(
+                FixedDatetime,
+                "current",
+                datetime(2026, 9, 30, 23, 59, 59, tzinfo=timezone.utc),
+            ):
+                self.assertEqual(publisher.plan([artifact]).paths, (artifact.path,))
+
+            with patch.object(
+                FixedDatetime,
+                "current",
+                datetime(2026, 10, 1, tzinfo=timezone.utc),
+            ):
+                with self.assertRaisesRegex(
+                    PublisherIsolationError, "closed historical month"
+                ):
+                    publisher.plan([artifact])
 
 
 if __name__ == "__main__":

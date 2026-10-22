@@ -6,6 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
 import unittest
+from unittest.mock import patch
 
 from open_radar.admission_request import AuthorizationPolicy
 from open_radar.admission_controls import (
@@ -32,6 +33,17 @@ from open_radar.generation import render_readme
 from open_radar.publisher import ObservationOnlyPublisher, PublisherArtifact
 from open_radar.domain import Project
 from open_radar.taxonomy import Taxonomy
+
+
+class DatetimeType(type):
+    def __instancecheck__(cls, value):
+        return isinstance(value, datetime)
+
+
+class FixedDatetime(datetime, metaclass=DatetimeType):
+    @classmethod
+    def now(cls, tz=None):
+        return cls.fromtimestamp(datetime(2026, 9, 4, tzinfo=timezone.utc).timestamp(), tz)
 
 
 PAYLOAD = {
@@ -188,6 +200,8 @@ class AdmissionPrE2ETests(unittest.TestCase):
                 )),
             ), path)
 
+            self.enterContext(patch("open_radar.domain.datetime", FixedDatetime))
+            self.enterContext(patch("open_radar.publisher.datetime", FixedDatetime))
             collector = CollectionService(GitHubProvider(FakeClient()), projects, observations)
             now = datetime(2026, 9, 4, tzinfo=timezone.utc)
             self.assertEqual(collector.collect_all(run_id="run-1", scheduled_at=now), 1)
