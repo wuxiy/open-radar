@@ -371,5 +371,10 @@
 用户已明确授权将本轮页面重设计提交并推送远程。范围为两份公开模板、公开设计说明、目录回归测试和本任务记录，共 5 个文件；版本保持 0.3.0，推送 main 后由既有工作流构建并部署 Pages。
 
 - [x] 刷新 HEAD、工作区、远端身份与提交范围，重新运行独立副本验证。
-- [ ] 提交并推送页面重设计，核验远端 main。
-- [ ] 确认自动检查与 Pages 部署成功，核对线上产物并记录发布结果。
+- [x] 提交并推送页面重设计，核验远端 main。
+- [x] 确认自动检查与 Pages 部署成功，核对线上产物并记录发布结果。
+
+
+发布结果：页面提交 `1253ae91a80083ef13b4d704736ff1feb3aea9c5` 已推送至 origin/main，远端 SHA 校验一致。该提交的 [validate](https://github.com/wuxiy/open-radar/actions/runs/39784338703) 和 [Deploy public catalog](https://github.com/wuxiy/open-radar/actions/runs/39784338710) 均为 completed / success。
+
+线上核验：[公开页面](https://wuxiy.github.io/open-radar/) 的 index.html 与 404.html 均与已验证产物逐字节一致；SHA-256 分别为 `94e8244a14a50d738603a3c74c29e001d70c1707d705f3e3ce06c4b2e708e192` 和 `99edee5a7a28e1b9f92cfe6d6945c6db4444112a17a8134fbfaaa77c4fb3d1f9`。已使用隔离 Chrome 实测线上 13 个项目、搜索/清空、390px 菜单/Escape 与 1440px 桌面布局，无横向溢出或控制台异常，线上截图已检查。
