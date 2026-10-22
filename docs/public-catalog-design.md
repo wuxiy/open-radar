@@ -1,48 +1,56 @@
 # Public Catalog design
 
-## 1. Visual theme and atmosphere
+## 视觉方向
 
-The public Catalog is a dark technical ledger: compact, evidence-led, and deliberately quieter than a product landing page. It privileges current facts over claims.
-
-## 2. Color palette and roles
+Open Radar 的公开目录采用黑绿配色和分栏首屏。左侧大字号中文标题与探索入口，右侧双层雷达仪表；下方用可筛选的双列卡片承载项目。页面以长期观察为主题，不用实时状态、榜单或推荐分数制造热度。
 
 | Token | Value | Role |
 | --- | --- | --- |
-| Canvas | `oklch(0.17 0.014 62)` | Page ground |
-| Surface | `oklch(0.215 0.016 62)` | Table surface |
-| Text | `oklch(0.91 0.018 82)` | Primary reading text |
-| Muted | `oklch(0.71 0.022 76)` | Supporting metadata |
-| Accent | `oklch(0.78 0.13 76)` | Count, links, and state |
+| Canvas | `#080b09` | 页面背景 |
+| Surface | `#101611` | 卡片内层 |
+| Text | `#f0f3ec` | 主文字 |
+| Muted | `#9aa697` | 辅助文字 |
+| Accent | `#c6f28c` | 入口、当前筛选、关键数字 |
+| Hairline | `rgb(211 240 195 / 10%)` | 外壳高光与结构分隔 |
 
-## 3. Typography
+## 字体、布局与层次
 
-Headlines and project names use the locally available Palatino family for an editorial record feel. System sans-serif handles prose; system monospace handles timestamps and numeric facts with tabular figures. No remote font or tracking asset is loaded.
+- 字体使用本机 `Geist / Avenir Next / PingFang SC / Microsoft YaHei`，数字和时间采用等宽字体；不下载字体。
+- 页面最大宽度 1240px，桌面内容区段留白 96px，手机端 16px 页边距、64px 内容留白。
+- 顶部悬浮胶囊导航与分栏首屏建立视觉层次。雷达图形只作装饰；中心项目数、领域数和研究中数量均从公开字段计算。
+- 仪表和项目卡片采用双层结构：低透明度外壳、内层表面和同心圆角。项目卡片外层 25px、内层 19px、间隔 5px。
+- 主按钮使用胶囊外形和独立圆形箭头。细线图标均内联，无图标字体依赖。
+- 404 页面沿用相同配色、字体、双层结构和目录返回入口。
 
-## 4. Components
+## 交互
 
-The page has a compact masthead, one scrollable data table, status pills, and a plain footer. Links have visible keyboard focus; the table gains a subtle background step on pointer hover.
+- 搜索匹配项目名、公开仓库路径以及中英文分类，不搜索未公开数据。
+- 分类、阶段与关键词取交集；分类计数表示全目录各领域数量，结果区域单独报告实际匹配数量。
+- 支持默认分类顺序、Stars 降序、观测时间降序和名称排序。同值保持稳定顺序；未知 Stars 和缺失观测排在有值项目之后，零 Stars 保留为零。
+- 无结果时显示说明和重置入口；重置清空全部条件及排序，焦点回到搜索框。
+- `/` 快捷键聚焦搜索框，在文本输入、选择控件、编辑区域和菜单内不触发。
+- 手机端分类横向滚动，卡片单列；菜单使用原生模态对话框，支持 Escape 关闭与焦点恢复，关闭后恢复背景滚动。切换至桌面断点自动关闭菜单，关闭按钮也独立于触发按钮的响应式显示规则。
 
-## 5. Layout
+## 动效与可访问性
 
-The page is a single centered ledger with a 1120px maximum width. On narrow screens the table scrolls horizontally instead of hiding data or changing column meaning.
+- 使用 `cubic-bezier(0.32, 0.72, 0, 1)`，只动画化 `transform` 和 `opacity`。不监听连续滚动事件。
+- 首屏轻微上移淡入，内容用 IntersectionObserver 触发入场。默认内容可见；脚本异常不会让目录永久透明。
+- `prefers-reduced-motion: reduce` 关闭动画与过渡；悬停位移仅在支持悬停的设备上启用。
+- 模糊只用于固定导航和模态菜单。普通卡片不使用背景模糊。
+- 保留跳转链接、可见键盘焦点、控件标签和结果数量播报。概览使用 UTC 日期精度；卡片显示到秒，datetime 与时间提示保留完整观测精度。
+- 无 JavaScript 时隐藏不可用筛选，所有项目、字段和链接仍可读，目录自动铺满宽度。
 
-## 6. Depth and elevation
+## 数据与发布边界
 
-Near-black canvas and low-opacity warm surfaces establish hierarchy. The table uses a single hairline outline and row separators, not card grids or decorative shadows.
+- 仅展示项目名、主仓库 URL、分类、研究阶段、跟踪频率、Stars 和观测时间。统计数字仅由这些字段派生。
+- 不在 HTML、属性或脚本中嵌入项目 YAML、research、context、私人备注、发现来源或运行日志。
+- Stars 为主仓库最近有效观测时的累计值，不表示实时值、增量或推荐度。收录不代表推荐，研究阶段不代表采用决定。
+- 所有动态字符串保持 Jinja 自动转义；脚本仅读取已公开 DOM，使用 textContent 更新结果，不执行外部内容。
+- 无远端脚本、字体、分析、Cookie 或图片。脚本、样式、装饰 SVG 和 favicon 均内联；浏览器仅请求两份静态入口。
+- 生成器仍只输出 `index.html` 和 `404.html`，拒绝含其他文件的输出目录。404 目录返回路径由既有 base-path 校验器处理。
+- 不部署 PR 或非 main 的输出，保持 build/deploy 权限拆分，不更改数据采集与写入流程。
+- 仓库与 Pages 公开。公开构建产物不是访问控制边界；私人权威知识不得输入 render-site。
 
-## 7. Guardrails
+## 验证约定
 
-- Render only name, repository URL, category, stage, tracking, Stars, and observation time.
-- Never embed project YAML, research, context, personal notes, discovery URLs, or run logs.
-- Do not add remote scripts, fonts, analytics, cookies, or images.
-- Do not deploy output built from pull requests or non-`main` refs.
-- This repository and its Pages site are public. The artifact is not an access-control boundary: private authoritative knowledge must live in a separate private repository or other private system, and must never be supplied to `render-site`.
-- The renderer accepts only the checked-in, public-safe project and observation records, emits exactly `index.html` and `404.html`, and rejects a destination containing any other file.
-
-## 8. Responsive behavior
-
-The page remains readable from 320px wide. Touch devices do not retain hover styling, and reduced-motion preferences suppress transitions.
-
-## 9. Prompt guide
-
-Keep future public Catalog elements on `Canvas`, use Palatino for display text and monospace for facts, reserve `Accent` for verified data/link emphasis, preserve the `4px / 10px / pill` radius scale, and never expose fields outside the explicit allowlist.
+在桌面、390px 和 320px 宽度验证首次渲染、目录操作、空结果、长名称、菜单与 404；单独验证无脚本与减少动态效果。交互测试脚本和截图存放在仓库外，不引入 Node 构建链或浏览器依赖。

@@ -1,133 +1,414 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A public, evidence-bound view of selected open-source projects.">
-  <title>Open Radar — public catalog</title>
+  <meta name="description" content="Open Radar，持续观察值得研究的开源项目。从真实记录出发，找到技术选择的下一步。">
+  <meta name="theme-color" content="#080b09">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23080b09'/%3E%3Ccircle cx='20' cy='20' r='12' fill='none' stroke='%23c6f28c'/%3E%3Cpath d='M20 20L29 11' stroke='%23c6f28c'/%3E%3Ccircle cx='20' cy='20' r='3' fill='%23c6f28c'/%3E%3C/svg%3E">
+  <title>Open Radar — 开源，有迹可循</title>
   <style>
     :root {
       color-scheme: dark;
-      --canvas: oklch(0.17 0.014 62);
-      --surface: oklch(0.215 0.016 62);
-      --surface-active: oklch(0.255 0.02 62);
-      --text: oklch(0.91 0.018 82);
-      --muted: oklch(0.71 0.022 76);
-      --line: oklch(0.42 0.018 68 / 0.5);
-      --accent: oklch(0.78 0.13 76);
-      --accent-muted: oklch(0.65 0.095 76);
-      --radius-tight: 4px;
-      --radius-panel: 10px;
-      --radius-pill: 999px;
+      --canvas: #080b09;
+      --surface: #101611;
+      --text: #f0f3ec;
+      --muted: #9aa697;
+      --accent: #c6f28c;
+      --hairline: rgb(211 240 195 / 10%);
+      --ease: cubic-bezier(0.32, 0.72, 0, 1);
+      --font: "Geist", "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      --layer-nav: 10;
+      --layer-skip: 20;
     }
     * { box-sizing: border-box; }
-    html { background: var(--canvas); }
-    body {
-      min-width: 320px;
-      margin: 0;
-      color: var(--text);
-      background: var(--canvas);
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
-    }
-    a { color: inherit; }
-    .skip-link {
-      position: fixed;
-      top: 0.75rem;
-      left: 0.75rem;
-      z-index: 2;
-      padding: 0.65rem 0.8rem;
-      color: var(--canvas);
-      background: var(--accent);
-      border-radius: var(--radius-tight);
-      transform: translateY(-160%);
-      transition: transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
-    }
+    html { background: var(--canvas); scroll-padding-top: 120px; }
+    body { margin: 0; color: var(--text); background: var(--canvas); font: 15px/1.65 var(--font); -webkit-font-smoothing: antialiased; }
+    body::before { content: ""; position: absolute; width: min(850px, 100%); height: 800px; top: 0; right: 0; pointer-events: none; background: radial-gradient(ellipse at 65% 36%, rgb(92 139 62 / 10%), transparent 64%); }
+    a { color: inherit; text-decoration: none; }
+    button, input, select { font: inherit; }
+    button, select { cursor: pointer; }
+    button { color: inherit; }
+    button:disabled { cursor: default; }
+    button, input, select { min-width: 0; }
+    [hidden] { display: none !important; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
+    ::selection { background: var(--accent); color: var(--canvas); }
+    .wrap { width: min(1240px, calc(100% - 96px)); margin-inline: auto; }
+    .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    .skip-link { position: fixed; top: 24px; left: 24px; z-index: var(--layer-skip); padding: 12px 24px; border-radius: 40px; color: var(--canvas); background: var(--accent); transform: translateY(-160%); transition: transform 400ms var(--ease); }
     .skip-link:focus { transform: translateY(0); }
-    .shell { width: min(1120px, calc(100% - 2rem)); margin: 0 auto; padding: clamp(2rem, 6vw, 5rem) 0 2rem; }
-    .masthead {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 1rem;
-      align-items: end;
-      padding-bottom: 2rem;
-      border-bottom: 1px solid var(--line);
+    .nav { position: fixed; z-index: var(--layer-nav); top: 24px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 48px; width: max-content; max-width: calc(100% - 32px); padding: 9px 10px 9px 22px; border: 1px solid rgb(255 255 255 / 9%); border-radius: 60px; background: rgb(21 28 22 / 84%); backdrop-filter: blur(20px); box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%), 0 12px 50px rgb(0 0 0 / 9%); }
+    .brand { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; font-size: 17px; font-weight: 650; letter-spacing: -0.5px; }
+    .brand-mark { width: 26px; height: 26px; color: var(--accent); }
+    .nav-links { display: flex; align-items: center; gap: 28px; font-size: 13px; }
+    .nav-links > a:first-child { color: var(--muted); }
+    .nav-source { display: inline-flex; align-items: center; gap: 16px; padding: 7px 8px 7px 18px; border-radius: 32px; background: rgb(255 255 255 / 6%); }
+    .arrow { display: inline-grid; place-items: center; flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; background: rgb(255 255 255 / 9%); font-size: 19px; line-height: 1; transition: transform 500ms var(--ease); }
+    .action { display: inline-flex; align-items: center; justify-content: center; gap: 27px; padding: 8px 8px 8px 24px; min-height: 52px; border-radius: 100px; font-weight: 600; font-size: 14px; transition: transform 500ms var(--ease); }
+    .action-primary { color: #1b2715; background: var(--accent); }
+    .action-primary .arrow { width: 38px; height: 38px; background: rgb(20 42 9 / 9%); }
+    .action-secondary { padding: 12px 4px; color: #c5cec1; font-weight: 450; }
+    .action:active, .nav-source:active { transform: scale(0.98); }
+    .menu-toggle { display: none; width: 44px; height: 44px; border: 0; border-radius: 50%; background: rgb(255 255 255 / 6%); position: relative; }
+    .menu-toggle span { position: absolute; left: 13px; width: 18px; height: 1px; background: var(--text); transition: transform 500ms var(--ease); }
+    .menu-toggle span:first-child { transform: translateY(-3px); }
+    .menu-toggle span:last-child { transform: translateY(3px); }
+    .menu-toggle[aria-expanded="true"] span:first-child { transform: rotate(45deg); }
+    .menu-toggle[aria-expanded="true"] span:last-child { transform: rotate(-45deg); }
+    .hero { position: relative; padding-top: 184px; padding-bottom: 96px; display: grid; grid-template-columns: 1.15fr 1fr; gap: 68px; align-items: center; }
+    .eyebrow { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 28px; padding: 5px 12px; border: 1px solid var(--hairline); border-radius: 30px; color: #c4d4bb; font: 10px/1.6 var(--mono); letter-spacing: 0.15em; text-transform: uppercase; }
+    .eyebrow::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+    h1 { margin: 0; font-size: clamp(56px, 6.8vw, 92px); font-weight: 550; letter-spacing: -0.065em; line-height: 1.12; }
+    h1 span { color: var(--accent); }
+    .hero-copy { max-width: 380px; margin: 30px 0; color: var(--muted); font-size: 15px; line-height: 1.9; }
+    .hero-actions { display: flex; gap: 28px; align-items: center; flex-wrap: wrap; }
+    .hero-footnote { display: flex; align-items: center; gap: 12px; margin: 35px 0 0; color: var(--muted); font-size: 11px; }
+    .hero-footnote::before { content: ""; width: 24px; height: 1px; background: #5a6853; }
+    .bezel { padding: 7px; border-radius: 34px; background: rgb(213 241 192 / 4%); border: 1px solid var(--hairline); box-shadow: 0 20px 80px rgb(0 0 0 / 8%); }
+    .core { border-radius: 26px; background: var(--surface); box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%); }
+    .instrument { transform: rotate(2deg); }
+    .instrument-core { padding: 24px 28px 20px; overflow: hidden; background: radial-gradient(ellipse at 50% 55%, #19261a, #101611 69%); }
+    .instrument-head, .instrument-foot { display: flex; justify-content: space-between; gap: 16px; align-items: center; color: #aab5a4; font: 10px/1.6 var(--mono); letter-spacing: 0.08em; }
+    .instrument-head span:last-child { color: var(--accent); letter-spacing: 0; }
+    .scope { position: relative; width: min(100%, 340px); aspect-ratio: 1; margin: 8px auto 0; }
+    .scope svg { width: 100%; height: 100%; overflow: visible; }
+    .scope-number { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .scope-number strong { font-size: 74px; font-weight: 450; line-height: 1; letter-spacing: -0.07em; }
+    .scope-number span { margin-top: 13px; font-size: 11px; color: #afbea6; letter-spacing: 0.2em; }
+    .instrument-foot { padding-top: 16px; border-top: 1px solid var(--hairline); }
+    .instrument-foot span:last-child { color: #7c8d73; }
+    .overview { display: flex; gap: 56px; align-items: center; margin-top: 16px; padding-top: 29px; border-top: 1px solid var(--hairline); }
+    .overview-item { display: flex; gap: 12px; align-items: baseline; }
+    .overview-item strong { font-size: 25px; font-weight: 500; letter-spacing: -0.04em; }
+    .overview-item span { color: var(--muted); font-size: 12px; }
+    .overview-note { margin-left: auto; color: var(--muted); font-size: 11px; }
+    .catalog { padding-top: 96px; padding-bottom: 96px; }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 38px; }
+    .section-kicker { margin: 0 0 12px; color: #8a9b80; font: 10px/1.5 var(--mono); letter-spacing: 0.18em; }
+    h2 { margin: 0; font-size: clamp(30px, 3.3vw, 42px); line-height: 1.3; font-weight: 500; letter-spacing: -0.04em; }
+    .section-note { margin: 0 0 5px; color: var(--muted); font-size: 12px; }
+    .tools { margin-bottom: 32px; }
+    .toolbar { display: flex; align-items: center; gap: 12px; }
+    .input-bezel { padding: 4px; border-radius: 19px; background: rgb(211 240 195 / 4%); border: 1px solid var(--hairline); }
+    .search { flex: 1; }
+    .search-core { display: flex; align-items: center; gap: 12px; padding-inline: 16px 12px; border-radius: 14px; background: #101611; box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%); }
+    .search-symbol { width: 17px; height: 17px; flex: 0 0 auto; color: #92a389; }
+    .search input { width: 100%; height: 46px; padding: 0; border: 0; outline: 0; color: var(--text); background: transparent; font-size: 13px; }
+    .search:focus-within { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .search input::placeholder { color: #84917e; }
+    kbd { padding: 0 7px; border: 1px solid var(--hairline); border-radius: 5px; color: #87937f; font: 11px/1.8 var(--mono); }
+    .select-core { position: relative; border-radius: 14px; background: #101611; }
+    select { width: 100%; height: 46px; padding: 0 37px 0 16px; border: 0; border-radius: 14px; color: #cad5c4; background: transparent; appearance: none; font-size: 12px; }
+    .select-core::after { content: "⌄"; position: absolute; right: 14px; top: 10px; pointer-events: none; color: var(--muted); }
+    .catalog-body { display: grid; grid-template-columns: 1fr; gap: 32px; }
+    .catalog-body.filters-ready { grid-template-columns: 180px minmax(0, 1fr); }
+    .categories { padding-right: 16px; }
+    .filter-heading { margin: 0 0 14px 14px; color: #83947a; font: 10px/1.5 var(--mono); letter-spacing: 0.16em; }
+    .filter-list { display: flex; flex-direction: column; gap: 5px; }
+    .filter { display: flex; align-items: center; justify-content: space-between; gap: 16px; width: 100%; min-height: 43px; padding: 9px 13px; border: 1px solid transparent; border-radius: 13px; color: var(--muted); background: transparent; text-align: left; font-size: 12px; transition: transform 400ms var(--ease); }
+    .filter[aria-pressed="true"] { color: var(--accent); border-color: rgb(198 242 140 / 12%); background: rgb(198 242 140 / 7%); }
+    .filter .mono { color: #a2b298; font-size: 10px; }
+    .filter-tip { margin: 32px 0 0 14px; color: #7d8d74; font-size: 11px; line-height: 1.9; }
+    .results-meta { display: flex; justify-content: space-between; gap: 16px; margin: 0 0 17px; color: var(--muted); font-size: 11px; }
+    #reset-filters { padding: 0; border: 0; color: var(--accent); background: transparent; font-size: 11px; }
+    .project-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    .project { min-width: 0; padding: 5px; border-radius: 25px; transition: transform 600ms var(--ease); }
+    .project-core { display: flex; flex-direction: column; height: 100%; padding: 25px 25px 18px; border-radius: 19px; }
+    .project-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 26px; }
+    .project-category { color: #a1b196; font: 10px/1.5 var(--mono); letter-spacing: 0.08em; }
+    .project-index { color: #71806a; font: 10px/1 var(--mono); }
+    .project h3 { margin: 0 0 6px; font-size: 21px; font-weight: 550; line-height: 1.4; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+    .project-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; }
+    .project-title .arrow { width: 29px; height: 29px; flex: 0 0 29px; font-size: 16px; color: #a0b292; background: rgb(198 242 140 / 5%); }
+    .repo-name { display: block; color: #83947a; font: 10px/1.7 var(--mono); overflow-wrap: anywhere; }
+    .project-facts { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: auto; padding-top: 28px; padding-bottom: 21px; font-size: 11px; }
+    .stage { display: inline-flex; align-items: center; gap: 6px; color: #bacaaf; }
+    .stage::before { content: ""; width: 5px; height: 5px; border: 1px solid #8fa27f; border-radius: 50%; }
+    .stage-researching::before { background: var(--accent); border-color: var(--accent); }
+    .tracking { color: #85987a; }
+    .stars { display: inline-flex; gap: 6px; margin-left: auto; color: #cedac5; }
+    .stars svg { width: 13px; height: 13px; align-self: center; color: #a1b78f; }
+    .project-bottom { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; padding-top: 14px; border-top: 1px solid var(--hairline); font-size: 10px; color: #819277; }
+    .project-bottom time { color: #a0ae97; overflow-wrap: anywhere; }
+    .empty { padding: 60px 24px; text-align: center; border-radius: 26px; background: var(--surface); }
+    .empty h3 { margin: 0; font-size: 22px; font-weight: 500; }
+    .empty p { color: var(--muted); font-size: 13px; }
+    .empty button { margin-top: 14px; border: 0; }
+    .about { padding-top: 96px; padding-bottom: 96px; border-top: 1px solid var(--hairline); display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: start; }
+    .about h2 { max-width: 12ch; }
+    .about-copy { padding-top: 28px; }
+    .about-copy p { margin: 0 0 20px; max-width: 45ch; color: var(--muted); font-size: 14px; line-height: 1.9; }
+    .about-copy strong { color: #d6dfd0; font-weight: 500; }
+    .about-link { display: inline-flex; align-items: center; gap: 16px; margin-top: 6px; font-size: 13px; }
+    .footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 32px; border-top: 1px solid var(--hairline); }
+    .footer .brand { font-size: 15px; }
+    .footer p { color: #83917b; margin: 0; font: 10px/1.6 var(--mono); letter-spacing: 0.03em; }
+    .menu { width: 100%; max-width: none; height: 100dvh; max-height: none; margin: 0; padding: 32px; border: 0; color: var(--text); background: rgb(8 11 9 / 95%); backdrop-filter: blur(28px); }
+    .menu::backdrop { background: rgb(0 0 0 / 55%); }
+    .menu-head { display: flex; justify-content: space-between; align-items: center; }
+    .menu .menu-toggle { display: block; }
+    .menu nav { display: flex; flex-direction: column; gap: 24px; margin-top: 100px; }
+    .menu nav a { font-size: 36px; letter-spacing: -0.04em; }
+    .menu[open] nav a { animation: menu-enter 700ms var(--ease) both; }
+    .menu[open] nav a:nth-child(2) { animation-delay: 100ms; }
+    .menu[open] nav a:nth-child(3) { animation-delay: 200ms; }
+    @keyframes menu-enter { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+    .enter { animation: arrive 950ms var(--ease) both; }
+    .enter-delay { animation-delay: 140ms; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+    .reveal-motion { animation: arrive 850ms var(--ease) both; }
+    @media (hover: hover) {
+      .action:hover .arrow, .nav-source:hover .arrow, .project-title:hover .arrow, .about-link:hover .arrow { transform: translate(2px, -2px) scale(1.05); }
+      .project:hover { transform: translateY(-4px); }
+      .filter:hover { transform: translateX(3px); }
     }
-    .eyebrow { margin: 0 0 0.8rem; color: var(--accent); font: 700 0.72rem/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: 0.13em; }
-    h1 { max-width: 16ch; margin: 0; font-family: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, serif; font-size: clamp(2.6rem, 8vw, 5.8rem); font-weight: 600; letter-spacing: -0.035em; line-height: 0.9; text-wrap: balance; }
-    .lede { max-width: 54ch; margin: 1rem 0 0; color: var(--muted); line-height: 1.55; text-wrap: pretty; }
-    .count { display: grid; justify-items: end; gap: 0.2rem; font-variant-numeric: tabular-nums; }
-    .count strong { color: var(--accent); font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: clamp(2rem, 5vw, 3.4rem); line-height: 1; }
-    .count span { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; }
-    .catalog { margin-top: clamp(2rem, 6vw, 4rem); }
-    .catalog-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 0.8rem; }
-    h2 { margin: 0; font-size: 0.9rem; letter-spacing: 0.08em; text-transform: uppercase; }
-    .catalog-heading p { margin: 0; color: var(--muted); font-size: 0.85rem; }
-    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-panel); background: color-mix(in oklch, var(--surface) 88%, transparent); }
-    table { width: 100%; min-width: 760px; border-collapse: collapse; }
-    th, td { padding: 1rem; border-bottom: 1px solid var(--line); text-align: left; }
-    th { color: var(--muted); font-size: 0.7rem; font-weight: 650; letter-spacing: 0.09em; text-transform: uppercase; }
-    tbody tr:last-child td { border-bottom: 0; }
-    td { font-size: 0.91rem; }
-    .project-link { color: var(--text); font-family: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, serif; font-size: 1.15rem; font-weight: 600; text-decoration-color: var(--accent-muted); text-decoration-thickness: 1px; text-underline-offset: 0.22em; }
-    .project-link:focus-visible, .project-link:hover { color: var(--accent); }
-    .num, time { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
-    .num { text-align: right; }
-    .state { display: inline-flex; padding: 0.26rem 0.5rem; color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 45%, var(--line)); border-radius: var(--radius-pill); font: 650 0.7rem/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: 0.04em; }
-    .quiet { color: var(--muted); }
-    .footer { display: flex; justify-content: space-between; gap: 1rem; padding: 1.4rem 0 0; color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
-    .footer p { max-width: 58ch; margin: 0; }
-    tbody tr { transition: background-color 140ms ease-out; }
-    @media (hover: hover) { tbody tr:hover { background: var(--surface-active); } }
-    @media (max-width: 640px) {
-      .shell { width: min(100% - 1.25rem, 1120px); padding-top: 2rem; }
-      .masthead { grid-template-columns: 1fr; }
-      .count { justify-items: start; }
-      .footer { display: block; }
-      .footer p + p { margin-top: 0.6rem; }
+    @media (max-width: 1100px) {
+      .wrap { width: calc(100% - 64px); }
+      .hero { gap: 36px; }
+      .hero-actions { gap: 14px; }
+      .instrument-core { padding-inline: 20px; }
+      .catalog-body.filters-ready { grid-template-columns: 150px minmax(0, 1fr); gap: 20px; }
+      .project-core { padding-inline: 19px; }
+      .project h3 { font-size: 19px; }
+      .overview { gap: 32px; }
     }
-    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; } }
+    @media (max-width: 767px) {
+      html { scroll-padding-top: 105px; }
+      .wrap { width: calc(100% - 32px); }
+      .nav { top: 16px; width: calc(100% - 32px); padding: 7px 8px 7px 18px; justify-content: space-between; gap: 16px; }
+      .nav-links { display: none; }
+      .menu-toggle { display: block; }
+      .hero { grid-template-columns: 1fr; gap: 48px; padding-top: 142px; padding-bottom: 32px; }
+      h1 { font-size: clamp(52px, 10vw, 76px); letter-spacing: -0.06em; }
+      .eyebrow { margin-bottom: 23px; font-size: 9px; }
+      .hero-copy { margin-block: 24px; max-width: none; font-size: 14px; text-wrap: pretty; }
+      .hero-footnote { margin-top: 26px; }
+      .instrument { transform: none; max-width: 480px; width: 100%; justify-self: center; }
+      .instrument-core { padding: 22px; }
+      .scope { max-width: 300px; }
+      .overview { gap: 24px; flex-wrap: wrap; padding-top: 24px; margin-top: 16px; }
+      .overview-item { gap: 8px; }
+      .overview-item strong { font-size: 23px; }
+      .overview-note { width: 100%; margin: -8px 0 0; font-size: 10px; }
+      .catalog { padding-block: 64px; }
+      .section-head { align-items: flex-start; flex-direction: column; gap: 13px; margin-bottom: 28px; }
+      .section-note { font-size: 11px; }
+      .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .search { grid-column: 1 / -1; }
+      .search input { font-size: 16px; }
+      kbd { display: none; }
+      .tools { margin-bottom: 22px; }
+      .catalog-body, .catalog-body.filters-ready { grid-template-columns: 1fr; gap: 24px; }
+      .categories { padding: 0; min-width: 0; }
+      .filter-heading, .filter-tip { display: none; }
+      .filter-list { flex-direction: row; overflow-x: auto; padding: 4px 3px 10px; gap: 8px; }
+      .filter { width: auto; flex: 0 0 auto; min-height: 44px; gap: 13px; border-color: var(--hairline); border-radius: 30px; }
+      .project-grid { grid-template-columns: 1fr; gap: 14px; }
+      .project-core { padding: 22px 22px 17px; }
+      .project-top { margin-bottom: 22px; }
+      .project h3 { font-size: 22px; }
+      .repo-name { font-size: 11px; }
+      .project-bottom { font-size: 10px; }
+      .about { grid-template-columns: 1fr; gap: 12px; padding-block: 64px; }
+      .about-copy { padding-top: 16px; }
+      .about h2 { max-width: none; }
+      .footer { align-items: flex-start; flex-direction: column; gap: 14px; padding-block: 28px; }
+      .menu { padding: 23px 25px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    }
   </style>
 </head>
+{% set category_names = {'ai': 'AI 与智能', 'automation': '自动化', 'data': '数据工程', 'devtools': '开发工具', 'observability': '可观测性', 'infrastructure': '基础设施', 'security': '安全', 'web': 'Web 技术'} %}
+{% set stage_names = {'watching': '观察中', 'researching': '研究中', 'evaluated': '已评估'} %}
+{% set tracking_names = {'daily': '每日跟踪', 'weekly': '每周跟踪', 'monthly': '每月跟踪', 'off': '停止跟踪'} %}
+{% set categories = projects | map(attribute='category') | unique | sort | list %}
+{% set observed_dates = projects | map(attribute='observed') | reject('none') | sort | list %}
 <body>
-  <a class="skip-link" href="#catalog">Skip to catalog</a>
-  <main id="catalog" class="shell">
-    <header class="masthead">
-      <div>
-        <p class="eyebrow">Open Radar / public catalog</p>
-        <h1>Selected projects, observed in public.</h1>
-        <p class="lede">A compact view of reviewed open-source projects and their latest recorded GitHub facts.</p>
+  <a class="skip-link" href="#catalog">跳到项目目录</a>
+  <header class="nav" aria-label="主导航">
+    <a class="brand" href="#top" aria-label="Open Radar 首页">
+      <svg class="brand-mark" viewBox="0 0 28 28" fill="none" aria-hidden="true"><circle cx="14" cy="14" r="11" stroke="currentColor" stroke-width="1"/><circle cx="14" cy="14" r="6" stroke="currentColor" stroke-width=".8" opacity=".5"/><path d="M14 14 23 5" stroke="currentColor"/><circle cx="14" cy="14" r="2" fill="currentColor"/></svg>
+      Open Radar
+    </a>
+    <nav class="nav-links" aria-label="页面链接"><a href="#catalog">项目目录</a><a href="#about">关于雷达</a><a class="nav-source" href="https://github.com/wuxiy/open-radar">GitHub <span class="arrow" aria-hidden="true">↗</span></a></nav>
+    <button class="menu-toggle" id="menu-toggle" type="button" aria-label="打开导航" aria-controls="mobile-menu" aria-expanded="false" hidden><span></span><span></span></button>
+  </header>
+  <main id="top">
+    <section class="hero wrap" aria-labelledby="hero-heading">
+      <div class="enter">
+        <p class="eyebrow">A considered view of open source</p>
+        <h1 id="hero-heading">开源，<br>有迹<span>可循。</span></h1>
+        <p class="hero-copy">好项目值得持续观察。<br>从分散的技术信号，到有依据的下一步。<br>一份不断生长的开源探索目录。</p>
+        <div class="hero-actions"><a class="action action-primary" href="#catalog">探索项目 <span class="arrow" aria-hidden="true">↓</span></a><a class="action action-secondary" href="#about">了解这份雷达 <span aria-hidden="true">↗</span></a></div>
+        <p class="hero-footnote">独立筛选 / 定期记录 / 保留判断</p>
       </div>
-      <div class="count" aria-label="{{ project_count }} projects">
-        <strong>{{ project_count }}</strong>
-        <span>tracked projects</span>
-      </div>
-    </header>
-    <section class="catalog" aria-labelledby="catalog-heading">
-      <div class="catalog-heading">
-        <h2 id="catalog-heading">Catalog ledger</h2>
-        <p>Latest validated observation</p>
-      </div>
-      <div class="table-wrap" tabindex="0" aria-label="Project catalog table">
-        <table>
-          <thead><tr><th scope="col">Project</th><th scope="col">Category</th><th scope="col">Stage</th><th scope="col">Tracking</th><th scope="col" class="num">Stars</th><th scope="col">Observed UTC</th></tr></thead>
-          <tbody>
-          {% for project in projects %}
-            <tr>
-              <td><a class="project-link" href="{{ project.url }}">{{ project.name }}</a></td>
-              <td>{{ project.category }}</td>
-              <td><span class="state">{{ project.stage }}</span></td>
-              <td>{{ project.tracking }}</td>
-              <td class="num">{% if project.stars is not none %}{{ project.stars }}{% else %}<span class="quiet">N/A</span>{% endif %}</td>
-              <td>{% if project.observed %}<time datetime="{{ project.observed }}">{{ project.observed }}</time>{% else %}<span class="quiet">Not observed</span>{% endif %}</td>
-            </tr>
-          {% endfor %}
-          </tbody>
-        </table>
+      <div class="instrument bezel enter enter-delay" aria-label="已收录 {{ project_count }} 个项目，覆盖 {{ categories | length }} 个领域">
+        <div class="instrument-core core">
+          <div class="instrument-head"><span>RADAR / FIELD OF VIEW</span><span>目录快照</span></div>
+          <div class="scope">
+            <svg viewBox="0 0 340 340" fill="none" aria-hidden="true">
+              <defs><radialGradient id="scope-glow"><stop stop-color="#c6f28c" stop-opacity=".10"/><stop offset="1" stop-color="#c6f28c" stop-opacity="0"/></radialGradient><linearGradient id="sweep" x1="170" y1="170" x2="290" y2="50" gradientUnits="userSpaceOnUse"><stop stop-color="#c6f28c" stop-opacity="0"/><stop offset="1" stop-color="#c6f28c" stop-opacity=".16"/></linearGradient></defs>
+              <circle cx="170" cy="170" r="150" fill="url(#scope-glow)"/>
+              <g stroke="#c6f28c" stroke-opacity=".11" stroke-width=".8"><circle cx="170" cy="170" r="143"/><circle cx="170" cy="170" r="106"/><circle cx="170" cy="170" r="69"/><path d="M170 18v304M18 170h304" stroke-dasharray="2 6"/></g>
+              <path d="M170 170 208 32a143 143 0 0 1 102 113Z" fill="url(#sweep)"/>
+              <path d="m170 170 121-77" stroke="#c6f28c" stroke-opacity=".23"/>
+              <g fill="#c6f28c"><circle cx="91" cy="112" r="3"/><circle cx="264" cy="121" r="4"/><circle cx="228" cy="260" r="3"/><circle cx="64" cy="224" r="2"/></g>
+              <circle cx="264" cy="121" r="10" stroke="#c6f28c" stroke-opacity=".16"/>
+              <g fill="#8a9b7b" font-size="8" font-family="monospace"><text x="158" y="12">000</text><text x="318" y="173">090</text><text x="158" y="337">180</text><text x="1" y="173">270</text></g>
+            </svg>
+            <div class="scope-number"><strong class="mono">{{ '%02d' | format(project_count) }}</strong><span>项目在视野之内</span></div>
+          </div>
+          <div class="instrument-foot"><span>{{ '%02d' | format(categories | length) }} 个技术领域</span><span>定期观测 · 非实时</span></div>
+        </div>
       </div>
     </section>
-    <footer class="footer"><p>Rendered from validated project records and current GitHub observations. Research, context, notes, and run logs are excluded.</p><p>Open Radar</p></footer>
+    <div class="overview wrap enter enter-delay">
+      <div class="overview-item"><strong class="mono">{{ '%02d' | format(project_count) }}</strong><span>收录项目</span></div>
+      <div class="overview-item"><strong class="mono">{{ '%02d' | format(categories | length) }}</strong><span>技术领域</span></div>
+      <div class="overview-item"><strong class="mono">{{ '%02d' | format(projects | selectattr('stage', 'equalto', 'researching') | list | length) }}</strong><span>正在研究</span></div>
+      <span class="overview-note">{% if observed_dates %}最近观测日期 <time class="mono" datetime="{{ observed_dates[-1][:10] }}">{{ observed_dates[-1][:10] }}</time> UTC{% else %}尚无观测记录{% endif %}</span>
+    </div>
+    <section class="catalog wrap" id="catalog" aria-labelledby="catalog-heading" tabindex="-1">
+      <div class="section-head" data-reveal><div><p class="section-kicker">01 / THE CATALOG</p><h2 id="catalog-heading">保持好奇，持续探索。</h2></div><p class="section-note">每一个项目，都从一条真实记录开始。</p></div>
+      <form class="tools" id="catalog-tools" role="search" aria-label="筛选项目" hidden>
+        <div class="toolbar">
+          <div class="input-bezel search"><div class="search-core"><svg class="search-symbol" viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" stroke="currentColor"/><path d="m13 13 4 4" stroke="currentColor" stroke-linecap="round"/></svg><label class="sr-only" for="search">搜索项目名称、仓库或分类</label><input id="search" type="search" placeholder="搜索名称、仓库或分类…" autocomplete="off" spellcheck="false"><kbd aria-hidden="true">/</kbd></div></div>
+          <div class="input-bezel"><div class="select-core"><label class="sr-only" for="stage">研究阶段</label><select id="stage"><option value="all">全部研究阶段</option>{% for stage in projects | map(attribute='stage') | unique | sort %}<option value="{{ stage }}">{{ stage_names.get(stage, stage) }}</option>{% endfor %}</select></div></div>
+          <div class="input-bezel"><div class="select-core"><label class="sr-only" for="sort">项目排序</label><select id="sort"><option value="catalog">按分类排列</option><option value="stars">Stars 从高到低</option><option value="recent">最近观测优先</option><option value="name">名称 A–Z</option></select></div></div>
+        </div>
+      </form>
+      <div class="catalog-body">
+        <aside class="categories" id="categories" aria-label="按技术领域筛选" hidden><p class="filter-heading">EXPLORE BY FIELD</p><div class="filter-list"><button class="filter" type="button" data-category="all" aria-pressed="true"><span>全部项目</span><span class="mono">{{ '%02d' | format(project_count) }}</span></button>{% for category in categories %}<button class="filter" type="button" data-category="{{ category }}" aria-pressed="false"><span>{{ category_names.get(category, category) }}</span><span class="mono">{{ '%02d' | format(projects | selectattr('category', 'equalto', category) | list | length) }}</span></button>{% endfor %}</div><p class="filter-tip">关注长期价值，<br>不追逐一时热度。</p></aside>
+        <div id="results">
+          <div class="results-meta"><span id="result-count" role="status" aria-live="polite" aria-atomic="true">共 {{ project_count }} 个项目</span><button id="reset-filters" type="button" hidden>清空筛选 ↗</button></div>
+          <div class="project-grid" id="project-grid">
+          {% for project in projects %}
+            <article class="project bezel" data-reveal data-category="{{ project.category }}" data-stage="{{ project.stage }}" data-stars="{{ project.stars if project.stars is not none else '' }}" data-observed="{{ project.observed or '' }}">
+              <div class="project-core core">
+                <div class="project-top"><span class="project-category">{{ category_names.get(project.category, project.category) }} / {{ project.category | upper }}</span><span class="project-index">{{ '%02d' | format(loop.index) }}</span></div>
+                <h3><a class="project-title" href="{{ project.url }}"><span class="project-name">{{ project.name }}</span><span class="arrow" aria-hidden="true">↗</span></a></h3>
+                <span class="repo-name">{{ project.url | replace('https://github.com/', '') }}</span>
+                <div class="project-facts"><span class="stage stage-{{ project.stage }}" title="{{ project.stage }}">{{ stage_names.get(project.stage, project.stage) }}</span><span class="tracking" title="{{ project.tracking }}">{{ tracking_names.get(project.tracking, project.tracking) }}</span><span class="stars mono" aria-label="Stars：{{ project.stars if project.stars is not none else '未知' }}"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m8 1.6 1.9 3.9 4.3.6-3.1 3 .7 4.3L8 11.4l-3.8 2 .7-4.3-3.1-3 4.3-.6Z" stroke="currentColor" stroke-width=".8" stroke-linejoin="round"/></svg>{% if project.stars is not none %}<span>{{ project.stars }}</span>{% else %}<span>N/A</span>{% endif %}</span></div>
+                <div class="project-bottom"><span>观测记录 / UTC</span>{% if project.observed %}<time class="mono" datetime="{{ project.observed }}" title="{{ project.observed }}">{{ project.observed[:19] | replace('T', ' ') }}</time>{% else %}<span class="mono" lang="en">Not observed</span>{% endif %}</div>
+              </div>
+            </article>
+          {% endfor %}
+          </div>
+          <div class="empty" id="empty-state"{% if project_count %} hidden{% endif %}><p class="section-kicker">KEEP EXPLORING</p><h3>{% if project_count %}暂时没有匹配的项目{% else %}第一条信号，即将入场。{% endif %}</h3><p>{% if project_count %}换个关键词，或清空筛选后继续探索。{% else %}目录尚未收录项目，稍后再来看看。{% endif %}</p><button class="action action-primary" type="button" id="empty-reset" hidden>查看全部项目 <span class="arrow" aria-hidden="true">↗</span></button></div>
+          <noscript><p class="muted">当前展示全部项目。启用 JavaScript 后可搜索、筛选和排序。</p></noscript>
+        </div>
+      </div>
+    </section>
+    <section class="about wrap" id="about" aria-labelledby="about-heading" data-reveal>
+      <div><p class="section-kicker">02 / THE PERSPECTIVE</p><h2 id="about-heading">信息很多。<br>判断，值得留存。</h2></div>
+      <div class="about-copy"><p>Open Radar 是一份持续维护的开源项目目录。<strong>记录事实，留存观察，支持下一次技术选择。</strong></p><p>这里展示项目的研究阶段与最近观测。Stars 是记录时的累计值；收录不代表推荐，研究阶段也不代表采用决定。</p><a class="about-link" href="https://github.com/wuxiy/open-radar">在 GitHub 了解项目 <span class="arrow" aria-hidden="true">↗</span></a></div>
+    </section>
   </main>
+  <footer class="footer wrap"><a class="brand" href="#top">Open Radar <span class="muted">/</span></a><p>SELECTED WITH INTENT. OBSERVED OVER TIME.</p><p>开源，有迹可循。</p></footer>
+  <dialog class="menu" id="mobile-menu" aria-label="导航菜单"><div class="menu-head"><span class="brand">Open Radar</span><button class="menu-toggle" id="menu-close" type="button" aria-label="关闭导航" aria-expanded="true"><span></span><span></span></button></div><nav aria-label="移动端页面链接"><a href="#catalog">项目目录 ↗</a><a href="#about">关于雷达 ↗</a><a href="https://github.com/wuxiy/open-radar">GitHub ↗</a></nav></dialog>
+  <script>
+    (() => {
+      const tools = document.querySelector('#catalog-tools');
+      const search = document.querySelector('#search');
+      const stage = document.querySelector('#stage');
+      const sort = document.querySelector('#sort');
+      const grid = document.querySelector('#project-grid');
+      const categories = document.querySelector('#categories');
+      const categoryButtons = [...categories.querySelectorAll('button')];
+      const cards = [...grid.children].map((element, index) => ({
+        element, index,
+        name: element.querySelector('.project-name').textContent,
+        searchable: [element.querySelector('.project-name').textContent, element.querySelector('.repo-name').textContent, element.querySelector('.project-category').textContent].join(' ').toLocaleLowerCase(),
+        category: element.dataset.category,
+        stage: element.dataset.stage,
+        stars: element.dataset.stars === '' ? -1 : Number(element.dataset.stars),
+        observed: element.dataset.observed ? Date.parse(element.dataset.observed) : -Infinity,
+      }));
+      const count = document.querySelector('#result-count');
+      const reset = document.querySelector('#reset-filters');
+      const emptyReset = document.querySelector('#empty-reset');
+      let category = 'all';
+      function update() {
+        const query = search.value.trim().toLocaleLowerCase();
+        const ordered = [...cards].sort((a, b) => {
+          if (sort.value === 'stars') return b.stars - a.stars || a.index - b.index;
+          if (sort.value === 'recent') return b.observed - a.observed || a.index - b.index;
+          if (sort.value === 'name') return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.index - b.index;
+          return a.index - b.index;
+        });
+        let visible = 0;
+        ordered.forEach(card => {
+          card.element.removeAttribute('data-reveal');
+          card.element.classList.remove('reveal-motion');
+          const matches = (!query || card.searchable.includes(query)) && (category === 'all' || card.category === category) && (stage.value === 'all' || card.stage === stage.value);
+          card.element.hidden = !matches;
+          if (matches) visible += 1;
+          grid.append(card.element);
+        });
+        categoryButtons.forEach(button => button.setAttribute('aria-pressed', String(button.dataset.category === category)));
+        count.textContent = `显示 ${visible} / ${cards.length} 个项目`;
+        document.querySelector('#empty-state').hidden = visible !== 0;
+        reset.hidden = !query && category === 'all' && stage.value === 'all' && sort.value === 'catalog';
+      }
+      function clearFilters() {
+        tools.reset();
+        category = 'all';
+        update();
+        search.focus({ preventScroll: true });
+      }
+      tools.addEventListener('submit', event => event.preventDefault());
+      search.addEventListener('input', update);
+      stage.addEventListener('change', update);
+      sort.addEventListener('change', update);
+      categoryButtons.forEach(button => button.addEventListener('click', () => { category = button.dataset.category; update(); }));
+      reset.addEventListener('click', clearFilters);
+      emptyReset.addEventListener('click', clearFilters);
+      tools.hidden = false;
+      categories.hidden = false;
+      emptyReset.hidden = cards.length === 0;
+      document.querySelector('.catalog-body').classList.add('filters-ready');
+      document.addEventListener('keydown', event => {
+        const typing = event.target.closest('input, textarea, select, [contenteditable="true"]');
+        if (event.key === '/' && !typing && !event.metaKey && !event.ctrlKey && !event.altKey && !document.querySelector('#mobile-menu').open) {
+          event.preventDefault(); search.focus();
+        }
+      });
+      const menu = document.querySelector('#mobile-menu');
+      const toggle = document.querySelector('#menu-toggle');
+      let scrollLocked = false;
+      function closeMenu() { menu.close(); }
+      if (typeof menu.showModal === 'function') {
+        toggle.hidden = false;
+        toggle.addEventListener('click', () => {
+          menu.showModal(); toggle.setAttribute('aria-expanded', 'true');
+          scrollLocked = document.body.style.overflow === 'hidden';
+          document.body.style.overflow = 'hidden';
+        });
+        document.querySelector('#menu-close').addEventListener('click', closeMenu);
+        menu.addEventListener('close', () => { toggle.setAttribute('aria-expanded', 'false'); if (!scrollLocked) document.body.style.overflow = ''; });
+        menu.querySelectorAll('a').forEach(link => link.addEventListener('click', closeMenu));
+        matchMedia('(max-width: 767px)').addEventListener('change', event => {
+          if (!event.matches && menu.open) closeMenu();
+        });
+      }
+      if ('IntersectionObserver' in window && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const observer = new IntersectionObserver(entries => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting) {
+              if (entry.target.hasAttribute('data-reveal')) entry.target.classList.add('reveal-motion');
+              observer.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.06 });
+        document.querySelectorAll('[data-reveal]').forEach(element => observer.observe(element));
+      }
+    })();
+  </script>
 </body>
 </html>

@@ -1,17 +1,45 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Open Radar — not found</title>
+  <meta name="theme-color" content="#080b09">
+  <title>Open Radar — 信号之外</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%23080b09'/%3E%3Ccircle cx='20' cy='20' r='12' fill='none' stroke='%23c6f28c'/%3E%3Cpath d='M20 20L29 11' stroke='%23c6f28c'/%3E%3C/svg%3E">
   <style>
-    :root { color-scheme: dark; --canvas: oklch(0.17 0.014 62); --text: oklch(0.91 0.018 82); --muted: oklch(0.71 0.022 76); --accent: oklch(0.78 0.13 76); }
-    body { display: grid; min-height: 100vh; margin: 0; place-items: center; color: var(--text); background: var(--canvas); font-family: ui-sans-serif, system-ui, sans-serif; }
-    main { width: min(38rem, calc(100% - 2rem)); }
-    p { color: var(--muted); line-height: 1.6; }
-    a { color: var(--accent); text-underline-offset: 0.22em; }
-    h1 { margin: 0; font-family: Iowan Old Style, Palatino Linotype, Book Antiqua, Palatino, serif; font-size: clamp(3rem, 12vw, 7rem); letter-spacing: -0.045em; line-height: 0.9; }
+    :root { color-scheme: dark; --canvas: #080b09; --text: #f0f3ec; --muted: #9aa697; --accent: #c6f28c; --ease: cubic-bezier(0.32, 0.72, 0, 1); }
+    * { box-sizing: border-box; }
+    body { min-height: 100dvh; margin: 0; display: grid; place-items: center; color: var(--text); background: radial-gradient(ellipse at 75% 30%, #142014, var(--canvas) 60%); font-family: "Geist", "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
+    .wrap { width: min(1040px, calc(100% - 96px)); padding-block: 96px; }
+    .brand { display: inline-flex; align-items: center; gap: 12px; font-size: 18px; font-weight: 600; letter-spacing: -.5px; }
+    .brand svg { width: 28px; height: 28px; color: var(--accent); }
+    main { display: grid; grid-template-columns: 1.3fr 1fr; align-items: center; gap: 72px; margin-block: 96px; }
+    .eyebrow { display: inline-block; margin: 0 0 26px; padding: 6px 12px; border: 1px solid rgb(211 240 195 / 10%); border-radius: 30px; color: var(--accent); font: 10px/1.5 "SFMono-Regular", Consolas, monospace; letter-spacing: .14em; }
+    h1 { margin: 0; font-size: clamp(38px, 5vw, 64px); font-weight: 500; line-height: 1.2; letter-spacing: -.055em; }
+    .copy { max-width: 32ch; margin: 24px 0 32px; color: var(--muted); font-size: 14px; line-height: 1.9; }
+    .action { display: inline-flex; align-items: center; gap: 32px; min-height: 54px; padding: 8px 8px 8px 24px; border-radius: 50px; background: var(--accent); color: #1b2715; font-size: 14px; font-weight: 600; transition: transform 500ms var(--ease); }
+    .arrow { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: rgb(20 42 9 / 9%); font-size: 20px; transition: transform 500ms var(--ease); }
+    .action:active { transform: scale(.98); }
+    .bezel { padding: 7px; border: 1px solid rgb(211 240 195 / 10%); border-radius: 34px; background: rgb(213 241 192 / 4%); }
+    .core { padding: 40px 24px; border-radius: 26px; background: #101611; box-shadow: inset 0 1px 0 rgb(255 255 255 / 5%); text-align: center; }
+    .number { width: 100%; aspect-ratio: 1; display: grid; place-items: center; border-radius: 50%; background: repeating-radial-gradient(circle at center, transparent 0 34px, rgb(198 242 140 / 9%) 35px 35.5px, transparent 36px 70px); color: var(--accent); font: 500 clamp(70px, 9vw, 110px)/1 "SFMono-Regular", Consolas, monospace; letter-spacing: -.07em; }
+    .caption, footer { color: #8c9d81; font: 10px/1.7 "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; }
+    .caption { margin: 16px 0 0; }
+    footer { padding-top: 24px; border-top: 1px solid rgb(211 240 195 / 10%); }
+    main { animation: arrive 950ms var(--ease) both; }
+    @keyframes arrive { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+    @media (hover: hover) { .action:hover .arrow { transform: translate(-3px, -1px) scale(1.05); } }
+    @media (max-width: 767px) { .wrap { width: calc(100% - 32px); padding-block: 32px; } main { grid-template-columns: 1fr; gap: 40px; margin-block: 64px; } .bezel { width: 100%; max-width: 340px; } .core { padding: 24px; } .number { font-size: 90px; } }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
   </style>
 </head>
-<body><main><p>Open Radar / 404</p><h1>This page is not in the catalog.</h1><p>Return to the <a href="{{ home_url }}">public project ledger</a>.</p></main></body>
+<body>
+  <div class="wrap">
+    <a class="brand" href="{{ home_url }}"><svg viewBox="0 0 28 28" fill="none" aria-hidden="true"><circle cx="14" cy="14" r="11" stroke="currentColor"/><circle cx="14" cy="14" r="6" stroke="currentColor" stroke-width=".8" opacity=".5"/><path d="M14 14 23 5" stroke="currentColor"/><circle cx="14" cy="14" r="2" fill="currentColor"/></svg>Open Radar</a>
+    <main><div><p class="eyebrow">404 / OUT OF RANGE</p><h1>这条信号，<br>还不在视野之内。</h1><p class="copy">页面可能已移动，或链接有误。<br>回到目录，继续探索开源项目。</p><a class="action" href="{{ home_url }}">回到项目目录 <span class="arrow" aria-hidden="true">↖</span></a></div><div class="bezel"><div class="core"><div class="number" aria-hidden="true">404</div><p class="caption">NO SIGNAL AT THIS ADDRESS</p></div></div></main>
+    <footer>OPEN RADAR / 开源，有迹可循。</footer>
+  </div>
+</body>
 </html>
