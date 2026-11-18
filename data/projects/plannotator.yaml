@@ -1,0 +1,23 @@
+schema_version: 1
+id: plannotator
+display_name: "Plannotator"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1123956658
+    owner: backnotprop
+    repo: plannotator
+    role: primary
+primary_category: devtools
+tags:
+  - agent
+  - coding-agent
+discovery_sources:
+  - type: manual
+    url: https://github.com/backnotprop/plannotator
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "面向 Agent 的计划、文档、交互产物与代码 diff 审阅界面，可将标注反馈给 Agent。"

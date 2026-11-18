@@ -1,0 +1,23 @@
+schema_version: 1
+id: open-code-review
+display_name: "Open Code Review"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1241960226
+    owner: alibaba
+    repo: open-code-review
+    role: primary
+primary_category: devtools
+tags:
+  - coding-agent
+  - testing
+discovery_sources:
+  - type: manual
+    url: https://github.com/alibaba/open-code-review
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "确定性评审流水线结合 LLM Agent，面向 Git 变更提供行级评论与多语言规则。"

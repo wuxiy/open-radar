@@ -1,0 +1,23 @@
+schema_version: 1
+id: pageindex
+display_name: "PageIndex"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 958531089
+    owner: VectifyAI
+    repo: PageIndex
+    role: primary
+primary_category: ai
+tags:
+  - rag
+  - search
+discovery_sources:
+  - type: manual
+    url: https://github.com/VectifyAI/PageIndex
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "面向长文档的树状索引及推理式检索；README 区分 SDK 本地与云模式。"
