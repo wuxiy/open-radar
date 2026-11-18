@@ -1,0 +1,22 @@
+schema_version: 1
+id: astryx
+display_name: "Astryx"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1131202426
+    owner: meta
+    repo: astryx
+    role: primary
+primary_category: devtools
+tags:
+  - coding-agent
+discovery_sources:
+  - type: manual
+    url: https://github.com/meta/astryx
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "面向人和 Agent 的 React 19+ / StyleX 设计系统，README 列出组件、主题、CLI 与 Storybook，并明确为 Beta。"

@@ -1,0 +1,22 @@
+schema_version: 1
+id: arcane
+display_name: "Arcane"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 968905557
+    owner: getarcaneapp
+    repo: arcane
+    role: primary
+primary_category: infrastructure
+tags:
+  - automation
+discovery_sources:
+  - type: manual
+    url: https://github.com/getarcaneapp/arcane
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: watching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "现代 Docker 管理 Web 界面，README 指明 main 为 v3，2.x 有独立维护分支。"

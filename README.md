@@ -141,6 +141,8 @@ See the [architecture document](./open-radar-project-structure.md) for the compl
 
 Reviewed brief: [2026-10-08 to 2026-10-14](./reports/report-weekly-2026-10-14-reviewed-2026-10-22.md), audited on 2026-10-22. It covers eight candidates and separates historical signals, documented capabilities, and follow-up research.
 
+Reviewed brief: [2026-11-12 to 2026-11-18](./reports/report-weekly-2026-11-18-reviewed-2026-11-18.md), audited on 2026-11-18. Eight candidates with source-bound evidence and pending adoption decisions.
+
 ## Development
 
 Run the offline suite and repository validation:

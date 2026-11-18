@@ -1,0 +1,23 @@
+schema_version: 1
+id: e2e
+display_name: "E2E"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1308631234
+    owner: e2e-inc
+    repo: e2e
+    role: primary
+primary_category: devtools
+tags:
+  - agent
+  - testing
+discovery_sources:
+  - type: manual
+    url: https://github.com/e2e-inc/e2e
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "Web 与移动端测试框架：自然语言 Agent 操作可与 locator 和确定性断言混用；README 描述验证后录制、重放动作。"

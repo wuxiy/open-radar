@@ -1,0 +1,21 @@
+schema_version: 1
+id: finetype
+display_name: "FineType"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1151194966
+    owner: meridian-online
+    repo: finetype
+    role: primary
+primary_category: data
+tags: []
+discovery_sources:
+  - type: manual
+    url: https://github.com/meridian-online/finetype
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "Rust 语义类型推断与转换契约，提供 DuckDB 扩展，支持列级画像及通过 arcform 接入 MCP；README 标记 Early Release。"
