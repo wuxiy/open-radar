@@ -1,0 +1,24 @@
+schema_version: 1
+id: loopforge
+display_name: "LoopForge"
+aliases: []
+repositories:
+  - provider: github
+    repository_id: 1314510108
+    owner: Tencent
+    repo: LoopForge
+    role: primary
+primary_category: devtools
+tags:
+  - agent
+  - coding-agent
+  - automation
+discovery_sources:
+  - type: manual
+    url: https://github.com/Tencent/LoopForge
+    discovered_at: '2026-11-18T15:50:00Z'
+research_stage: researching
+decision: undecided
+tracking: weekly
+personal_notes: ''
+summary: "自托管 Coding Agent 工作区与交付流程；README 描述可重复 SOP、沙箱工作区、脚本和人工确认，支持 CodeBuddy、Codex 与 Claude Code。"
